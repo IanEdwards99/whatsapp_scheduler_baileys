@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Send Message Now - WhatsApp Scheduler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📱 WhatsApp Scheduler</h1>
+            <nav class="main-nav">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/add" class="nav-link">Add Schedule</a>
+                <a href="/send_now" class="nav-link active">Send Now</a>
+                <a href="/overview" class="nav-link">Overview</a>
+                <a href="/history" class="nav-link">History</a>
+            
+                <form action="/shutdown" method="post" style="display: inline; float: right;">
+                    <button type="submit" class="nav-link" style="background: none; border: none; cursor: pointer; color: #dc3545; font-weight: bold; margin-left: 15px;" onclick="return confirm("Are you sure you want to completely shut down the server?");">🛑 Shutdown</button>
+                </form>
+            </nav>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        {{ message|safe }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <main class="content">
+            <div class="form-card">
+                <h2>Send Message Now</h2>
+                <form method="POST" class="send-form">
+                    <div class="form-group">
+                        <label for="type">Message Type</label>
+                        <div class="button-group">
+                            <label class="radio-label">
+                                <input type="radio" name="type" value="message" id="type-message" checked onchange="toggleContent()">
+                                <span class="radio-button">💬 Message</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="type" value="poll" id="type-poll" onchange="toggleContent()">
+                                <span class="radio-button">📊 Poll</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="contact">Contact Name or Phone Number</label>
+                        <input type="text" name="contact" id="contact" placeholder="e.g., John Doe or +1234567890" required>
+                    </div>
+
+                    <div id="message-content">
+                        <div class="form-group">
+                            <label for="message">Message</label>
+                            <textarea name="message" id="message" placeholder="Type your message here..."></textarea>
+                            <small class="char-count">0 characters</small>
+                        </div>
+                    </div>
+
+                    <div id="poll-content" style="display:none;">
+                        <div class="form-group">
+                            <label for="question">Poll Question</label>
+                            <textarea name="question" id="question" placeholder="What do you want to ask?"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="options">Poll Options</label>
+                            <input type="text" name="options" id="options" placeholder="Option 1, Option 2, Option 3">
+                            <small>Separate options with commas</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="allow_multi_select" id="allow_multi_select">
+                                <span>Allow multiple selections</span>
+                            </label>
+                            <small>If checked, users can select more than one option</small>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">✓ Send Now</button>
+                        <a href="/" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const messageArea = document.getElementById('message');
+        const charCount = document.querySelector('.char-count');
+        
+        function toggleContent() {
+            const type = document.querySelector('input[name="type"]:checked').value;
+            const messageContent = document.getElementById('message-content');
+            const pollContent = document.getElementById('poll-content');
+            
+            if (type === 'message') {
+                messageContent.style.display = 'block';
+                pollContent.style.display = 'none';
+            } else {
+                messageContent.style.display = 'none';
+                pollContent.style.display = 'block';
+            }
+        }
+
+        messageArea.addEventListener('input', function() {
+            charCount.textContent = this.value.length + ' characters';
+        });
+    </script>
+</body>
+</html>

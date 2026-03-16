@@ -1,0 +1,24 @@
+_IGNORE_*
+.session/
+SESSION.data.json
+WA.data.json
+__pycache__/
+env/
+venv/
+*.pyc
+node_modules/
+logs/
+*.log
+*.pid
+schedules/schedule.json
+schedules/message_history.json
+# WhatsApp session data (sensitive!)
+whatsapp_scheduler.data.json
+whatsapp_scheduler_MULTI_DEVICE.data.json
+*.data.json
+# QR code PNG (temporary authentication file)
+qr_code.png
+qr_screenshot.png
+# Persistent browser session store (contains auth tokens - never commit!)
+whatsapp_session_store/
+*.env

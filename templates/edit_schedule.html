@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Schedule - WhatsApp Scheduler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📱 WhatsApp Scheduler</h1>
+            <nav class="main-nav">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/add" class="nav-link">Add Schedule</a>
+                <a href="/send_now" class="nav-link">Send Now</a>
+                <a href="/overview" class="nav-link">Overview</a>
+                <a href="/history" class="nav-link">History</a>
+            
+                <form action="/shutdown" method="post" style="display: inline; float: right;">
+                    <button type="submit" class="nav-link" style="background: none; border: none; cursor: pointer; color: #dc3545; font-weight: bold; margin-left: 15px;" onclick="return confirm("Are you sure you want to completely shut down the server?");">🛑 Shutdown</button>
+                </form>
+            </nav>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        {{ message|safe }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="content">
+            <div class="form-card">
+                <h2>✏️ Edit Schedule</h2>
+
+                <form method="POST" class="add-form">
+                    <div class="form-group">
+                        <label for="type">Message Type</label>
+                        <div class="button-group">
+                            <label class="radio-label">
+                                <input type="radio" name="type" value="message" id="type-message" 
+                                    {{ 'checked' if schedule.type == 'message' else '' }} onchange="toggleContent()">
+                                <span class="radio-button">💬 Message</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="type" value="poll" id="type-poll" 
+                                    {{ 'checked' if schedule.type == 'poll' else '' }} onchange="toggleContent()">
+                                <span class="radio-button">📊 Poll</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="contact">Contact Name or Phone Number</label>
+                        <input type="text" name="contact" id="contact" value="{{ schedule.contact }}" required>
+                    </div>
+
+                    <div id="message-content" style="{{ 'display:block;' if schedule.type == 'message' else 'display:none;' }}">
+                        <div class="form-group">
+                            <label for="message">Message</label>
+                            <textarea name="message" id="message" rows="5">{{ schedule.message if schedule.type == 'message' else '' }}</textarea>
+                        </div>
+                    </div>
+
+                    <div id="poll-content" style="{{ 'display:block;' if schedule.type == 'poll' else 'display:none;' }}">
+                        <div class="form-group">
+                            <label for="question">Poll Question</label>
+                            <textarea name="question" id="question">{{ schedule.question if schedule.type == 'poll' else '' }}</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="options">Poll Options</label>
+                            <input type="text" name="options" id="options" 
+                                value="{{ schedule.options|join(', ') if schedule.type == 'poll' and schedule.options else '' }}">
+                            <small>Separate options with commas</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="allow_multi_select" id="allow_multi_select"
+                                    {{ 'checked' if schedule.get('allow_multi_select') else '' }}>
+                                <span>Allow multiple selections</span>
+                            </label>
+                            <small>If checked, users can select more than one option</small>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="recurring">Repeat</label>
+                        <select name="recurring" id="recurring" onchange="toggleRecurringOptions()">
+                            <option value="" {{ 'selected' if not schedule.recurring else '' }}>No - Send Once</option>
+                            <option value="daily" {{ 'selected' if schedule.recurring == 'daily' else '' }}>Daily</option>
+                            <option value="weekly" {{ 'selected' if schedule.recurring == 'weekly' else '' }}>Weekly</option>
+                            <option value="monthly" {{ 'selected' if schedule.recurring == 'monthly' else '' }}>Monthly</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="datetime-group">
+                        <label for="datetime">Send Date & Time</label>
+                        <input type="datetime-local" name="datetime" id="datetime" value="{{ datetime_value }}" required>
+                        <small id="recurring-hint" style="display:none;"></small>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">✓ Save Changes</button>
+                        <a href="/" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleContent() {
+            const type = document.querySelector('input[name="type"]:checked').value;
+            const messageContent = document.getElementById('message-content');
+            const pollContent = document.getElementById('poll-content');
+            
+            if (type === 'message') {
+                messageContent.style.display = 'block';
+                pollContent.style.display = 'none';
+            } else {
+                messageContent.style.display = 'none';
+                pollContent.style.display = 'block';
+            }
+        }
+        
+        function toggleRecurringOptions() {
+            const recurring = document.getElementById('recurring').value;
+            const hint = document.getElementById('recurring-hint');
+            const datetimeInput = document.getElementById('datetime');
+            
+            if (recurring === 'weekly') {
+                hint.style.display = 'block';
+                updateWeeklyHint();
+                datetimeInput.addEventListener('change', updateWeeklyHint);
+            } else if (recurring === 'monthly') {
+                hint.style.display = 'block';
+                updateMonthlyHint();
+                datetimeInput.addEventListener('change', updateMonthlyHint);
+            } else if (recurring === 'daily') {
+                hint.style.display = 'block';
+                hint.textContent = '📅 Will repeat every day at the selected time';
+            } else {
+                hint.style.display = 'none';
+            }
+        }
+        
+        function updateWeeklyHint() {
+            const datetimeInput = document.getElementById('datetime');
+            const hint = document.getElementById('recurring-hint');
+            if (datetimeInput.value) {
+                const date = new Date(datetimeInput.value);
+                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                const dayName = days[date.getDay()];
+                hint.textContent = '📅 Will repeat every ' + dayName + ' at ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            }
+        }
+        
+        function updateMonthlyHint() {
+            const datetimeInput = document.getElementById('datetime');
+            const hint = document.getElementById('recurring-hint');
+            if (datetimeInput.value) {
+                const date = new Date(datetimeInput.value);
+                const day = date.getDate();
+                const suffix = (day === 1 || day === 21 || day === 31) ? 'st' : 
+                               (day === 2 || day === 22) ? 'nd' : 
+                               (day === 3 || day === 23) ? 'rd' : 'th';
+                hint.textContent = '📅 Will repeat on the ' + day + suffix + ' of each month';
+            }
+        }
+        
+        // Initialize recurring hint on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            toggleRecurringOptions();
+        });
+    </script>
+</body>
+</html>

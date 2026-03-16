@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Scheduler - Home</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .status-badge {
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-pending {
+            background-color: #ffc107;
+            color: #000;
+        }
+        .status-completed {
+            background-color: #28a745;
+            color: #fff;
+        }
+        .status-failed {
+            background-color: #dc3545;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📱 WhatsApp Scheduler</h1>
+            <nav class="main-nav">
+                <a href="/" class="nav-link active">Home</a>
+                <a href="/add" class="nav-link">Add Schedule</a>
+                <a href="/send_now" class="nav-link">Send Now</a>
+                <a href="/overview" class="nav-link">Overview</a>
+                <a href="/history" class="nav-link">History</a>
+            
+                <form action="/shutdown" method="post" style="display: inline; float: right;">
+                    <button type="submit" class="nav-link" style="background: none; border: none; cursor: pointer; color: #dc3545; font-weight: bold; margin-left: 15px;" onclick="return confirm("Are you sure you want to completely shut down the server?");">🛑 Shutdown</button>
+                </form>
+            </nav>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        {{ message|safe }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="content">
+            <div class="form-card">
+                <h2>📅 Scheduled Messages & Polls</h2>
+                
+                {% if schedules %}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Contact</th>
+                                <th>Content</th>
+                                <th>Next Run</th>
+                                <th>Status</th>
+                                <th>Recurring</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for schedule in schedules %}
+                                <tr>
+                                    <td>
+                                        {% if schedule.type == 'message' %}
+                                            💬 Message
+                                        {% else %}
+                                            📊 Poll
+                                        {% endif %}
+                                    </td>
+                                    <td><strong>{{ schedule.contact }}</strong></td>
+                                    <td>
+                                        {% if schedule.type == 'message' %}
+                                            <small>{{ schedule.message|truncate(50, True, '...') }}</small>
+                                        {% else %}
+                                            <small><strong>Q:</strong> {{ schedule.question|truncate(40, True, '...') }}</small><br>
+                                            <small><strong>Options:</strong> {{ (schedule.options|join(', '))|truncate(50, True, '...') }}</small>
+                                            {% if schedule.get('allow_multi_select') %}
+                                                <br><small><em>☑️ Multi-select enabled</em></small>
+                                            {% endif %}
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% set next_run = schedule.get('next_run', schedule.time) %}
+                                        {% if 'T' in next_run %}
+                                            <strong>{{ next_run[:10] }}</strong><br>
+                                            <small>{{ next_run[11:16] }}</small>
+                                        {% else %}
+                                            <strong>{{ next_run }}</strong>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="status-badge status-{{ schedule.get('status', 'pending') }}">
+                                            {{ schedule.get('status', 'pending') }}
+                                        </span>
+                                    </td>
+                                    <td>{{ schedule.recurring or 'Once' }}</td>
+                                    <td>
+                                        <a href="/edit/{{ loop.index0 }}" class="action-link edit-link">✏️ Edit</a>
+                                        <a href="/delete/{{ loop.index0 }}" class="action-link delete-link">🗑️ Delete</a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <div style="text-align: center; padding: 40px;">
+                        <p style="font-size: 16px; color: #666;">No schedules yet.</p>
+                        <a href="/add" class="btn btn-primary" style="margin-top: 15px; display: inline-block;">+ Add Your First Schedule</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

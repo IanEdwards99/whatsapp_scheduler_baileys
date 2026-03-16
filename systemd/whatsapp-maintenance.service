@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily WhatsApp Scheduler Maintenance
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/iedwards/development/whatsapp_driver_baileys
+ExecStart=/home/iedwards/development/whatsapp_driver_baileys/daily_maintenance.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+[Unit]
+Description=WhatsApp Driver Server (open-wa)
+After=network.target
+
+[Service]
+Type=simple
+User=iedwards
+WorkingDirectory=/home/iedwards/development/whatsapp_driver_baileys
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=30
+
+# Give Chromium/puppeteer more time to shut down gracefully
+# Default 90s is not enough; prevents SIGKILL which corrupts session
+TimeoutStopSec=300
+
+# Give the RPi 3B+ plenty of time to start up
+# The Node process itself handles retries with exponential backoff,
+# so we set this to infinity to avoid systemd killing it mid-retry.
+TimeoutStartSec=infinity
+
+# Auto-restart if memory usage gets too high (Chromium leak protection)
+# Pi has ~1GB RAM, limit Chromium to 800MB before restart
+MemoryMax=800M
+MemoryHigh=650M
+
+# Limit restart bursts: max 5 restarts in 10 minutes
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

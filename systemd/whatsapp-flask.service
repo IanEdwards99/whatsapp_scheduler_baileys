@@ -1,0 +1,18 @@
+[Unit]
+Description=WhatsApp Scheduler Flask App
+After=network.target whatsapp-driver.service
+Requires=whatsapp-driver.service
+
+[Service]
+Type=simple
+User=iedwards
+WorkingDirectory=/home/iedwards/development/whatsapp_driver_baileys
+Environment=PATH=/home/iedwards/development/whatsapp_driver_baileys/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/iedwards/development/whatsapp_driver_baileys/venv/bin/python app.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

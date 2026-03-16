@@ -1,0 +1,23 @@
+[Unit]
+Description=WhatsApp Background Scheduler
+After=network.target whatsapp-driver.service
+Requires=whatsapp-driver.service
+
+[Service]
+Type=simple
+User=iedwards
+WorkingDirectory=/home/iedwards/development/whatsapp_driver_baileys
+Environment=PATH=/home/iedwards/development/whatsapp_driver_baileys/venv/bin:/usr/local/bin:/usr/bin:/bin
+
+# Email notification configuration (create this file with your credentials)
+# See systemd/email-config.example for format
+EnvironmentFile=-/home/iedwards/.whatsapp-scheduler-email
+
+ExecStart=/home/iedwards/development/whatsapp_driver_baileys/venv/bin/python background_scheduler.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

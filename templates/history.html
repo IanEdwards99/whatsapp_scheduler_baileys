@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Message History - WhatsApp Scheduler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border-left: 4px solid #007bff;
+        }
+        .stat-card.success { border-left-color: #28a745; }
+        .stat-card.danger { border-left-color: #dc3545; }
+        .stat-card.warning { border-left-color: #ffc107; }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-sent {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-failed {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status-error {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .history-table th {
+            background: #f8f9fa;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+            border-bottom: 2px solid #dee2e6;
+        }
+        .history-table td {
+            padding: 12px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .history-table tr:hover {
+            background: #f8f9fa;
+        }
+        .type-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .type-message {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .type-poll {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        .content-preview {
+            max-width: 400px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .metadata {
+            font-size: 11px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📱 WhatsApp Scheduler</h1>
+            <nav class="main-nav">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/add" class="nav-link">Add Schedule</a>
+                <a href="/send_now" class="nav-link">Send Now</a>
+                <a href="/overview" class="nav-link">Overview</a>
+                <a href="/history" class="nav-link active">History</a>
+            
+                <form action="/shutdown" method="post" style="display: inline; float: right;">
+                    <button type="submit" class="nav-link" style="background: none; border: none; cursor: pointer; color: #dc3545; font-weight: bold; margin-left: 15px;" onclick="return confirm("Are you sure you want to completely shut down the server?");">🛑 Shutdown</button>
+                </form>
+            </nav>
+        </header>
+
+        <div class="content">
+            <div class="form-card">
+                <h2>📜 Message History</h2>
+                
+                <!-- Statistics -->
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">{{ stats.total }}</div>
+                        <div class="stat-label">Total Messages</div>
+                    </div>
+                    <div class="stat-card success">
+                        <div class="stat-value">{{ stats.sent }}</div>
+                        <div class="stat-label">Successfully Sent</div>
+                    </div>
+                    <div class="stat-card danger">
+                        <div class="stat-value">{{ stats.failed }}</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                    <div class="stat-card warning">
+                        <div class="stat-value">{{ stats.errors }}</div>
+                        <div class="stat-label">Errors</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">{{ "%.1f"|format(stats.success_rate) }}%</div>
+                        <div class="stat-label">Success Rate</div>
+                    </div>
+                </div>
+
+                <!-- History Table -->
+                {% if history %}
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Date/Time</th>
+                                <th>Type</th>
+                                <th>Contact</th>
+                                <th>Content</th>
+                                <th>Status</th>
+                                <th>Source</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in history|reverse %}
+                                <tr>
+                                    <td style="white-space: nowrap;">{{ entry.date }}</td>
+                                    <td>
+                                        <span class="type-badge type-{{ entry.type }}">
+                                            {{ entry.type }}
+                                        </span>
+                                    </td>
+                                    <td>{{ entry.contact }}</td>
+                                    <td class="content-preview">
+                                        {% if entry.type == 'message' %}
+                                            {{ entry.content.get('message', 'N/A')|truncate(50, True, '...') }}
+                                        {% elif entry.type == 'poll' %}
+                                            <strong>Q:</strong> {{ entry.content.get('question', 'N/A')|truncate(30, True, '...') }}<br>
+                                            <small class="metadata">{{ entry.content.get('options', [])|length }} options</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="status-badge status-{{ entry.status }}">
+                                            {{ entry.status }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="metadata">
+                                            {{ entry.metadata.get('source', 'unknown') }}
+                                            {% if entry.metadata.get('recurring') %}
+                                                <br>🔄 {{ entry.metadata.get('recurring') }}
+                                            {% endif %}
+                                        </span>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    <p style="text-align: center; color: #666; margin-top: 20px;">
+                        Showing last 100 entries
+                    </p>
+                {% else %}
+                    <p style="text-align: center; padding: 40px; color: #666;">
+                        No message history yet. Send a message to get started!
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

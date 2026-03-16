@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Schedule - WhatsApp Scheduler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📱 WhatsApp Scheduler</h1>
+            <nav class="main-nav">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/add" class="nav-link active">Add Schedule</a>
+                <a href="/send_now" class="nav-link">Send Now</a>
+                <a href="/overview" class="nav-link">Overview</a>
+                <a href="/history" class="nav-link">History</a>
+            
+                <form action="/shutdown" method="post" style="display: inline; float: right;">
+                    <button type="submit" class="nav-link" style="background: none; border: none; cursor: pointer; color: #dc3545; font-weight: bold; margin-left: 15px;" onclick="return confirm("Are you sure you want to completely shut down the server?");">🛑 Shutdown</button>
+                </form>
+            </nav>
+        </header>
+
+        <div class="content">
+            <div class="form-card">
+                <h2>➕ Create New Schedule</h2>
+
+                <form method="POST" class="add-form">
+                    <div class="form-group">
+                        <label for="type">Message Type</label>
+                        <div class="button-group">
+                            <label class="radio-label">
+                                <input type="radio" name="type" value="message" id="type-message" checked onchange="toggleContent()">
+                                <span class="radio-button">💬 Message</span>
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="type" value="poll" id="type-poll" onchange="toggleContent()">
+                                <span class="radio-button">📊 Poll</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="contact">Contact Name or Phone Number</label>
+                        <input type="text" name="contact" id="contact" placeholder="e.g., John Doe or +1234567890" required>
+                    </div>
+
+                    <div id="message-content">
+                        <div class="form-group">
+                            <label for="message">Message</label>
+                            <textarea name="message" id="message" placeholder="Type your message here..."></textarea>
+                        </div>
+                    </div>
+
+                    <div id="poll-content" style="display:none;">
+                        <div class="form-group">
+                            <label for="question">Poll Question</label>
+                            <textarea name="question" id="question" placeholder="What do you want to ask?"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="options">Poll Options</label>
+                            <input type="text" name="options" id="options" placeholder="Option 1, Option 2, Option 3">
+                            <small>Separate options with commas</small>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="allow_multi_select" id="allow_multi_select">
+                                <span>Allow multiple selections</span>
+                            </label>
+                            <small>If checked, users can select more than one option</small>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="recurring">Repeat</label>
+                        <select name="recurring" id="recurring" onchange="toggleRecurringOptions()">
+                            <option value="">No - Send Once</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="datetime-group">
+                        <label for="datetime">Send Date & Time</label>
+                        <input type="datetime-local" name="datetime" id="datetime" required>
+                        <small id="recurring-hint" style="display:none;"></small>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">✓ Add Schedule</button>
+                        <a href="/" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleContent() {
+            const type = document.querySelector('input[name="type"]:checked').value;
+            const messageContent = document.getElementById('message-content');
+            const pollContent = document.getElementById('poll-content');
+            
+            if (type === 'message') {
+                messageContent.style.display = 'block';
+                pollContent.style.display = 'none';
+            } else {
+                messageContent.style.display = 'none';
+                pollContent.style.display = 'block';
+            }
+        }
+        
+        function toggleRecurringOptions() {
+            const recurring = document.getElementById('recurring').value;
+            const hint = document.getElementById('recurring-hint');
+            const datetimeInput = document.getElementById('datetime');
+            
+            if (recurring === 'weekly') {
+                hint.style.display = 'block';
+                updateWeeklyHint();
+                datetimeInput.addEventListener('change', updateWeeklyHint);
+            } else if (recurring === 'monthly') {
+                hint.style.display = 'block';
+                updateMonthlyHint();
+                datetimeInput.addEventListener('change', updateMonthlyHint);
+            } else if (recurring === 'daily') {
+                hint.style.display = 'block';
+                hint.textContent = '📅 Will repeat every day at the selected time';
+            } else {
+                hint.style.display = 'none';
+            }
+        }
+        
+        function updateWeeklyHint() {
+            const datetimeInput = document.getElementById('datetime');
+            const hint = document.getElementById('recurring-hint');
+            if (datetimeInput.value) {
+                const date = new Date(datetimeInput.value);
+                const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                const dayName = days[date.getDay()];
+                hint.textContent = '📅 Will repeat every ' + dayName + ' at ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            }
+        }
+        
+        function updateMonthlyHint() {
+            const datetimeInput = document.getElementById('datetime');
+            const hint = document.getElementById('recurring-hint');
+            if (datetimeInput.value) {
+                const date = new Date(datetimeInput.value);
+                const day = date.getDate();
+                const suffix = (day === 1 || day === 21 || day === 31) ? 'st' : 
+                               (day === 2 || day === 22) ? 'nd' : 
+                               (day === 3 || day === 23) ? 'rd' : 'th';
+                hint.textContent = '📅 Will repeat on the ' + day + suffix + ' of each month';
+            }
+        }
+        
+        // Set default datetime to now + 1 hour
+        document.addEventListener('DOMContentLoaded', function() {
+            const now = new Date();
+            now.setHours(now.getHours() + 1);
+            now.setMinutes(0);
+            const localISOTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+            document.getElementById('datetime').value = localISOTime;
+        });
+    </script>
+</body>
+</html>

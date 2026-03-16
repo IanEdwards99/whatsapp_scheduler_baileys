@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schedule Overview - WhatsApp Scheduler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status-pending {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .status-completed {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status-failed {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .schedule-item {
+            position: relative;
+        }
+        .datetime-info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📱 WhatsApp Scheduler</h1>
+            <nav class="main-nav">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/add" class="nav-link">Add Schedule</a>
+                <a href="/send_now" class="nav-link">Send Now</a>
+                <a href="/overview" class="nav-link active">Overview</a>
+                <a href="/history" class="nav-link">History</a>
+            
+                <form action="/shutdown" method="post" style="display: inline; float: right;">
+                    <button type="submit" class="nav-link" style="background: none; border: none; cursor: pointer; color: #dc3545; font-weight: bold; margin-left: 15px;" onclick="return confirm("Are you sure you want to completely shut down the server?");">🛑 Shutdown</button>
+                </form>
+            </nav>
+        </header>
+
+        <div class="content">
+            <div class="form-card">
+                <h2>📋 Complete Schedule Overview</h2>
+                
+                {% if schedules %}
+                    <div class="schedule-list">
+                        {% for schedule in schedules %}
+                            <div class="schedule-item">
+                                <h3>
+                                    {% if schedule.type == 'message' %}
+                                        💬
+                                    {% else %}
+                                        📊
+                                    {% endif %}
+                                    {{ schedule.contact }}
+                                    <span class="status-badge status-{{ schedule.get('status', 'pending') }}">
+                                        {{ schedule.get('status', 'pending')|upper }}
+                                    </span>
+                                </h3>
+                                <p><strong>Type:</strong> {{ schedule.type|capitalize }}</p>
+                                <p><strong>Next Run:</strong> ⏰ 
+                                    {% set next_run = schedule.get('next_run', schedule.time) %}
+                                    {% if 'T' in next_run %}
+                                        {{ next_run[:10] }} at {{ next_run[11:16] }}
+                                    {% else %}
+                                        {{ next_run }}
+                                    {% endif %}
+                                </p>
+                                <p><strong>Repeat:</strong> {{ schedule.recurring or 'Once' }}</p>
+                                
+                                {% if schedule.get('last_run') %}
+                                    <div class="datetime-info">
+                                        Last run: {{ schedule.last_run[:19]|replace('T', ' ') }}
+                                    </div>
+                                {% endif %}
+                                
+                                {% if schedule.get('created_at') %}
+                                    <div class="datetime-info">
+                                        Created: {{ schedule.created_at[:19]|replace('T', ' ') }}
+                                    </div>
+                                {% endif %}
+                                
+                                {% if schedule.type == 'message' %}
+                                    <p style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee;">
+                                        <strong>Message:</strong><br>
+                                        <small style="white-space: pre-wrap;">{{ schedule.message }}</small>
+                                    </p>
+                                {% else %}
+                                    <p style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee;">
+                                        <strong>Question:</strong><br>
+                                        <small>{{ schedule.question }}</small>
+                                    </p>
+                                    <p>
+                                        <strong>Options:</strong>
+                                        {% for option in schedule.options %}
+                                            <br><small>• {{ option }}</small>
+                                        {% endfor %}
+                                    </p>
+                                    <p>
+                                        <strong>Multi-select:</strong> {{ 'Yes' if schedule.get('allow_multi_select') else 'No' }}
+                                    </p>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <div style="margin-top: 20px; text-align: center;">
+                        <p style="color: #666;">Total: <strong>{{ schedules|length }}</strong> schedule{{ 's' if schedules|length != 1 else '' }}</p>
+                    </div>
+                {% else %}
+                    <div style="text-align: center; padding: 40px;">
+                        <p style="font-size: 16px; color: #666;">No schedules configured yet.</p>
+                        <a href="/add" class="btn btn-primary" style="margin-top: 15px; display: inline-block;">+ Create Your First Schedule</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
