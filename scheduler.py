@@ -12,7 +12,7 @@ class MessageScheduler:
     def __init__(self, schedule_file: str):
         self.schedule_file = schedule_file
         self.schedules = self.load_schedules()
-        self.driver_server_url = "http://127.0.0.1:5002"
+        self.driver_server_url = "http://127.0.0.1:5001"
     
     def load_schedules(self) -> List[dict]:
         """Load schedules from JSON file"""

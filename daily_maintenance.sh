@@ -48,7 +48,7 @@ RESTART_REASON=""
 if systemctl is-active --quiet whatsapp-driver; then
     DRIVER_SYSTEMD_OK=true
     # Check if the API is actually responding and the client is ready
-    STATUS=$(curl -s --max-time 10 http://localhost:5002/status 2>/dev/null || echo '{}')
+    STATUS=$(curl -s --max-time 10 http://localhost:5001/status 2>/dev/null || echo '{}')
     READY=$(echo "$STATUS" | grep -o '"ready":true' || true)
     if [ -n "$READY" ]; then
         DRIVER_API_OK=true
@@ -151,7 +151,7 @@ while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
         break
     fi
 
-    STATUS=$(curl -s --max-time 5 http://localhost:5002/status 2>/dev/null || echo '{}')
+    STATUS=$(curl -s --max-time 5 http://localhost:5001/status 2>/dev/null || echo '{}')
     READY=$(echo "$STATUS" | grep -o '"ready":true' || true)
 
     if [ -n "$READY" ]; then

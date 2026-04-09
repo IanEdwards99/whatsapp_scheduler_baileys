@@ -8,7 +8,7 @@ the schedule file for pending messages/polls to send.
 Architecture:
 - Runs in infinite loop with configurable check interval (default 10 seconds)
 - Reads schedules from schedules/schedule.json with file locking
-- Sends via driver HTTP API (port 5002)
+- Sends via driver HTTP API (port 5001)
 - Logs all sends to message_history.json
 - Updates recurring schedules automatically
 
@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 SCHEDULE_FILE = "schedules/schedule.json"
-DRIVER_SERVER_URL = os.environ.get("DRIVER_URL", "http://127.0.0.1:5002")
+DRIVER_SERVER_URL = os.environ.get("DRIVER_URL", "http://127.0.0.1:5001")
 CHECK_INTERVAL = 30  # Check every 30 seconds for pending schedules (reduced for Pi)
 MAX_CONSECUTIVE_FAILURES = 20  # Restart driver after ~10 minutes of failures
 DRIVER_RESTART_COOLDOWN = 900  # Wait 15 minutes between restart attempts
@@ -75,7 +75,7 @@ class EnhancedScheduleProcessor:
         
         Args:
             schedule_file: Path to schedule.json
-            driver_url: Base URL for driver API (e.g., http://127.0.0.1:5002)
+            driver_url: Base URL for driver API (e.g., http://127.0.0.1:5001)
         """
         self.scheduler = MessageScheduler(schedule_file)
         self.driver_url = driver_url

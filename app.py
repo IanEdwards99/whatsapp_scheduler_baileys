@@ -17,7 +17,7 @@ app.secret_key = "your_secret_key_change_in_production"
 scheduler = MessageScheduler("schedules/schedule.json")
 history = MessageHistory()  # Add history tracking
 
-DRIVER_SERVER_URL = os.environ.get("DRIVER_URL", "http://127.0.0.1:5002")
+DRIVER_SERVER_URL = os.environ.get("DRIVER_URL", "http://127.0.0.1:5001")
 
 
 def ensure_driver_server():

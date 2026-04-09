@@ -101,7 +101,7 @@ function formatContactId(contact) {
     return numeric + '@s.whatsapp.net';
 }
 
-// Emulate open-wa driver endpoints
+// HTTP API endpoints
 
 app.post('/send_message', async (req, res) => {
     let { contact, message } = req.body;

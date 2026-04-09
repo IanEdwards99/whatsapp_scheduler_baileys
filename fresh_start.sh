@@ -44,34 +44,23 @@ if systemctl is-active --quiet whatsapp-driver.service 2>/dev/null; then
     fi
 fi
 
-# Kill any manually started processes and Chromium
+# Kill any manually started processes
 pkill -f "node server.js" 2>/dev/null || true
 pkill -f "background_scheduler.py" 2>/dev/null || true
 pkill -f "app.py" 2>/dev/null || true
-pkill -f chromium 2>/dev/null || true
 sleep 2
 
-# Remove open-wa session data files
-echo "Clearing open-wa session data files..."
-rm -f whatsapp_scheduler.data.json
-rm -f whatsapp_scheduler_MULTI_DEVICE.data.json
+# Remove generated QR file
 rm -f qr_code.png
-rm -f qr_screenshot.png
-echo "  ✓ Session data JSON files removed"
+echo "  ✓ QR code file removed"
 
-# Remove browser profile (contains cookies, local storage, auth tokens)
-echo "Clearing browser session store..."
-if [ -d "whatsapp_session_store" ]; then
-    rm -rf whatsapp_session_store/
-    echo "  ✓ Browser session store cleared"
+# Remove Baileys auth session (contains credentials)
+echo "Clearing Baileys auth session..."
+if [ -d "baileys_auth_info" ]; then
+    rm -rf baileys_auth_info/
+    echo "  ✓ Baileys auth session cleared"
 else
-    echo "  (no browser session store found)"
-fi
-
-# Also remove legacy session directories if they exist
-if [ -d "_IGNORE_whatsapp_scheduler" ]; then
-    rm -rf _IGNORE_whatsapp_scheduler/
-    echo "  ✓ Legacy session directory cleared"
+    echo "  (no baileys_auth_info directory found)"
 fi
 
 echo ""
@@ -81,5 +70,4 @@ echo "Next steps:"
 echo "  1. Run: node server.js   (or start via systemd)"
 echo "  2. Open: http://<pi-ip>:5001/qr_code.png"
 echo "  3. Scan the QR code with your phone"
-echo "  4. WAIT at least 5 minutes before stopping the server"
-echo "     (this ensures session data is fully saved)"
+echo "  4. WAIT for 'Opened connection, fully authenticated!' in the logs"

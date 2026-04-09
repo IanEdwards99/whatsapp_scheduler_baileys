@@ -8,7 +8,7 @@ import time
 import requests
 from scheduler_core import MessageScheduler
 
-DRIVER_URL = "http://127.0.0.1:5002"
+DRIVER_URL = "http://127.0.0.1:5001"
 TEST_CONTACT = "+1 555 123 4567"  # You
 TEST_GROUP = "Test"  # Test group
 

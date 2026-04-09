@@ -79,7 +79,7 @@ class ProcessSupervisor:
     def check_driver_health(self) -> bool:
         """Check if driver server is responding"""
         try:
-            response = requests.get("http://127.0.0.1:5002/status", timeout=2)
+            response = requests.get("http://127.0.0.1:5001/status", timeout=2)
             return response.status_code == 200
         except Exception:
             return False

@@ -38,7 +38,7 @@ class MessageScheduler:
     
     def __init__(self, schedule_file: str):
         self.schedule_file = schedule_file
-        self.driver_server_url = os.environ.get("DRIVER_URL", "http://127.0.0.1:5002")
+        self.driver_server_url = os.environ.get("DRIVER_URL", "http://127.0.0.1:5001")
         
         # Ensure schedule file exists
         Path(schedule_file).parent.mkdir(parents=True, exist_ok=True)
