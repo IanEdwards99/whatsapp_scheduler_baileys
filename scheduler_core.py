@@ -1,11 +1,10 @@
 import json
-import fcntl
 import logging
 import requests
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
-from contextlib import contextmanager
+from filelock import FileLock
 import os
 
 logging.basicConfig(level=logging.INFO)
@@ -13,24 +12,17 @@ logger = logging.getLogger(__name__)
 
 
 class ScheduleLock:
-    """Context manager for file locking"""
-    
+    """Cross-platform context manager for file locking"""
+
     def __init__(self, filepath: str):
-        self.filepath = filepath
-        self.lockfile = f"{filepath}.lock"
-        self.lock_fd = None
-    
+        self.lock = FileLock(f"{filepath}.lock", timeout=10)
+
     def __enter__(self):
-        # Create lock file if it doesn't exist
-        Path(self.lockfile).touch()
-        self.lock_fd = open(self.lockfile, 'w')
-        fcntl.flock(self.lock_fd.fileno(), fcntl.LOCK_EX)
+        self.lock.acquire()
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.lock_fd:
-            fcntl.flock(self.lock_fd.fileno(), fcntl.LOCK_UN)
-            self.lock_fd.close()
+        self.lock.release()
 
 
 class MessageScheduler:

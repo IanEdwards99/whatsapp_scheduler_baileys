@@ -1,0 +1,5 @@
+#!/bin/bash
+# Start WhatsApp driver + scheduler
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+"$DIR/venv/bin/python" "$DIR/manage.py" start "$@"

@@ -1,0 +1,6 @@
+#!/bin/bash
+# One-time setup for WhatsApp Scheduler
+# Checks prerequisites, installs dependencies, creates config
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+python3 "$DIR/manage.py" setup "$@"

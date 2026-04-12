@@ -19,6 +19,10 @@ whatsapp_scheduler_MULTI_DEVICE.data.json
 # QR code PNG (temporary authentication file)
 qr_code.png
 qr_screenshot.png
-# Persistent browser session store (contains auth tokens - never commit!)
-whatsapp_session_store/
+# Baileys session data (contains auth tokens - never commit!)
+baileys_auth_info/
+# Process tracking
+pids.json
+# Lock files
+*.lock
 *.env

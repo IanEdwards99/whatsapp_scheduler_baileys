@@ -5,7 +5,7 @@ Tracks all sent messages and polls with automatic size limit enforcement
 
 import json
 import os
-import fcntl
+from filelock import FileLock
 from datetime import datetime
 from typing import List, Dict, Optional
 import logging
@@ -15,13 +15,14 @@ logger = logging.getLogger(__name__)
 
 class MessageHistory:
     """Track all sent messages with size limit and file locking"""
-    
+
     MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
-    
+
     def __init__(self, history_file: str = "schedules/message_history.json"):
         self.history_file = history_file
+        self._lock = FileLock(f"{history_file}.lock", timeout=10)
         self._ensure_file()
-    
+
     def _ensure_file(self):
         """Create history file if it doesn't exist"""
         if not os.path.exists(self.history_file):
@@ -29,47 +30,35 @@ class MessageHistory:
             with open(self.history_file, 'w') as f:
                 json.dump([], f)
             logger.info(f"Created message history file: {self.history_file}")
-    
+
     def _check_size_and_prune(self):
         """Check file size and prune if over limit"""
         try:
             if os.path.getsize(self.history_file) > self.MAX_SIZE_BYTES:
                 logger.warning(f"History file exceeds {self.MAX_SIZE_BYTES / (1024*1024):.1f}MB, pruning...")
                 history = self._load_history_locked()
-                
-                # Keep only the most recent 50% of entries
                 pruned = history[len(history)//2:]
-                
                 self._save_history_locked(pruned)
-                
                 logger.info(f"Pruned history from {len(history)} to {len(pruned)} entries")
         except Exception as e:
             logger.error(f"Error pruning history: {e}")
-    
+
     def _load_history_locked(self) -> List[Dict]:
         """Load history with file lock"""
         self._ensure_file()
-        
-        with open(self.history_file, 'r+') as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_SH)  # Shared lock for reading
+        with self._lock:
             try:
-                history = json.load(f)
+                with open(self.history_file, 'r') as f:
+                    return json.load(f)
             except json.JSONDecodeError:
                 logger.error("Error decoding history JSON, returning empty list")
-                history = []
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-        
-        return history
-    
+                return []
+
     def _save_history_locked(self, history: List[Dict]):
         """Save history with file lock"""
-        with open(self.history_file, 'w') as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)  # Exclusive lock for writing
-            try:
+        with self._lock:
+            with open(self.history_file, 'w') as f:
                 json.dump(history, f, indent=2)
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     
     def load_history(self) -> List[Dict]:
         """Load message history (public method without lock)"""

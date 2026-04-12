@@ -1,0 +1,5 @@
+#!/bin/bash
+# Start Flask web UI (on-demand, press Ctrl+C to stop)
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+"$DIR/venv/bin/python" "$DIR/manage.py" web "$@"
