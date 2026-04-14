@@ -69,6 +69,24 @@ def is_port_in_use(port):
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def get_local_ip():
+    """Return the LAN IP of this machine (falls back to 127.0.0.1)."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except Exception:
+        return "127.0.0.1"
+
+
+def is_wsl():
+    """True when running inside WSL (Windows Subsystem for Linux)."""
+    try:
+        return "microsoft" in platform.release().lower()
+    except Exception:
+        return False
+
+
 def is_pid_alive(pid):
     """Check if a process with given PID is running (cross-platform)."""
     if pid is None:
@@ -861,7 +879,10 @@ def cmd_web(args):
         log("Flask failed to start! Check logs/flask.log", "ERROR")
         return
 
-    url = "http://127.0.0.1:5000"
+    # On WSL2, 127.0.0.1 resolves to Windows localhost in the browser, not WSL.
+    # Use the real LAN IP so the link actually works.
+    host = get_local_ip() if is_wsl() else "127.0.0.1"
+    url = f"http://{host}:5000"
     log(f"Flask running at {url}")
     open_browser(url)
     log("Press Ctrl+C to stop the web UI.")
@@ -1147,19 +1168,34 @@ WantedBy=timers.target
 
     print()
     log("Service files generated in systemd/")
+
+    # Copy to /etc/systemd/system, reload, enable, and start.
+    service_files = [str(systemd_dir / n) for n in files]
+    boot_services = ["whatsapp-driver", "whatsapp-scheduler", "whatsapp-maintenance.timer"]
+    start_services = ["whatsapp-driver", "whatsapp-scheduler"]
+
+    steps = [
+        (["sudo", "cp"] + service_files + ["/etc/systemd/system/"],
+         "Copying service files to /etc/systemd/system/"),
+        (["sudo", "systemctl", "daemon-reload"],
+         "Reloading systemd"),
+        (["sudo", "systemctl", "enable"] + boot_services,
+         "Enabling services on boot"),
+        (["sudo", "systemctl", "start"] + start_services,
+         "Starting services"),
+    ]
+
+    for cmd, desc in steps:
+        log(desc + "...")
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            log(f"Command failed: {' '.join(cmd)}", "ERROR")
+            log("Fix the issue above, then re-run: python manage.py install-service", "ERROR")
+            sys.exit(1)
+
     print()
-    print("  To install, run:")
-    print(f"    sudo cp {systemd_dir}/*.service {systemd_dir}/*.timer /etc/systemd/system/")
-    print("    sudo systemctl daemon-reload")
-    print()
-    print("  To enable on boot:")
-    print("    sudo systemctl enable whatsapp-driver whatsapp-scheduler")
-    print()
-    print("  To start:")
-    print("    sudo systemctl start whatsapp-driver whatsapp-scheduler")
-    print()
-    print("  Flask is on-demand (don't enable it):")
-    print("    sudo systemctl start whatsapp-flask   # when you need the web UI")
+    log("Services installed, enabled, and started.")
+    log("Flask is on-demand — start it with:  sudo systemctl start whatsapp-flask")
     print()
 
 
