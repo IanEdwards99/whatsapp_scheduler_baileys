@@ -1,0 +1,10 @@
+#!/bin/bash
+# Re-run email + Telegram notification setup
+set -e
+DIR="$(cd "$(dirname "$0")" && pwd)"
+
+if [ -f "$DIR/venv/bin/python" ]; then
+    "$DIR/venv/bin/python" "$DIR/manage.py" configure "$@"
+else
+    python3 "$DIR/manage.py" configure "$@"
+fi

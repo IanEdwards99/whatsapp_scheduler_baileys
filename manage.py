@@ -427,6 +427,109 @@ def setup_telegram_walkthrough():
     return token, chat_id
 
 
+def _load_env_values():
+    """Read key=value pairs from .env into a dict (ignores comments/blanks)."""
+    values = {}
+    if ENV_FILE.exists():
+        for line in ENV_FILE.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                k, _, v = line.partition("=")
+                values[k.strip()] = v.strip()
+    return values
+
+
+def _write_env_values(values):
+    """Write the env dict back preserving comment blocks."""
+    content = f"""# WhatsApp Scheduler Configuration
+EMAIL_USER={values.get('EMAIL_USER', '')}
+EMAIL_PASS={values.get('EMAIL_PASS', '')}
+EMAIL_TO={values.get('EMAIL_TO', '')}
+
+# WhatsApp Driver
+DRIVER_URL={values.get('DRIVER_URL', 'http://127.0.0.1:5001')}
+
+# Telegram Bot
+TELEGRAM_TOKEN={values.get('TELEGRAM_TOKEN', '')}
+TELEGRAM_CHAT_ID={values.get('TELEGRAM_CHAT_ID', '')}
+"""
+    ENV_FILE.write_text(content)
+
+
+def _configure_notifications(first_run=False):
+    """Walk through email + Telegram setup, updating .env in place."""
+    values = _load_env_values()
+
+    has_email = bool(values.get("EMAIL_USER") and values.get("EMAIL_PASS"))
+    has_telegram = bool(values.get("TELEGRAM_TOKEN") and values.get("TELEGRAM_CHAT_ID"))
+
+    if not first_run and has_email and has_telegram:
+        log(".env already configured (email + Telegram). Run ./configure to change.")
+        return
+
+    if not first_run:
+        print()
+        _hr("═")
+        print("  NOTIFICATION SETUP")
+        _hr("═")
+        if has_email:
+            print(f"  Email    : already configured ({values.get('EMAIL_USER')})")
+        else:
+            print("  Email    : NOT configured")
+        if has_telegram:
+            print(f"  Telegram : already configured (chat {values.get('TELEGRAM_CHAT_ID')})")
+        else:
+            print("  Telegram : NOT configured")
+        print()
+
+    # Email
+    if not has_email:
+        email_user, email_pass, email_to = setup_email_walkthrough()
+        if email_user and email_pass:
+            values["EMAIL_USER"] = email_user
+            values["EMAIL_PASS"] = email_pass
+            values["EMAIL_TO"] = email_to
+    elif not first_run and _prompt_yes(
+        f"  Email is configured ({values['EMAIL_USER']}). Reconfigure?", default_yes=False
+    ):
+        email_user, email_pass, email_to = setup_email_walkthrough()
+        if email_user and email_pass:
+            values["EMAIL_USER"] = email_user
+            values["EMAIL_PASS"] = email_pass
+            values["EMAIL_TO"] = email_to
+
+    # Telegram
+    if not has_telegram:
+        telegram_token, telegram_chat_id = setup_telegram_walkthrough()
+        if telegram_token:
+            values["TELEGRAM_TOKEN"] = telegram_token
+            values["TELEGRAM_CHAT_ID"] = telegram_chat_id
+    elif not first_run and _prompt_yes(
+        "  Telegram is configured. Reconfigure?", default_yes=False
+    ):
+        telegram_token, telegram_chat_id = setup_telegram_walkthrough()
+        if telegram_token:
+            values["TELEGRAM_TOKEN"] = telegram_token
+            values["TELEGRAM_CHAT_ID"] = telegram_chat_id
+
+    if "DRIVER_URL" not in values:
+        values["DRIVER_URL"] = "http://127.0.0.1:5001"
+
+    _write_env_values(values)
+    log(".env saved")
+
+
+def cmd_configure(args):
+    """Re-run email and Telegram notification setup."""
+    _configure_notifications(first_run=False)
+    print()
+    print("  Done. Restart services to pick up new settings:")
+    print("    ./whatsapp-stop && ./whatsapp-start")
+    print()
+
+
 # ─────────────────────────────────────────────
 # Commands
 # ─────────────────────────────────────────────
@@ -494,27 +597,8 @@ def cmd_setup(args):
     if not history_file.exists():
         history_file.write_text("[]")
 
-    # 6. Create .env interactively if missing
-    if not ENV_FILE.exists():
-        email_user, email_pass, email_to = setup_email_walkthrough()
-        telegram_token, telegram_chat_id = setup_telegram_walkthrough()
-
-        env_content = f"""# WhatsApp Scheduler Configuration
-EMAIL_USER={email_user}
-EMAIL_PASS={email_pass}
-EMAIL_TO={email_to}
-
-# WhatsApp Driver
-DRIVER_URL=http://127.0.0.1:5001
-
-# Telegram Bot
-TELEGRAM_TOKEN={telegram_token}
-TELEGRAM_CHAT_ID={telegram_chat_id}
-"""
-        ENV_FILE.write_text(env_content)
-        log(".env created")
-    else:
-        log(".env already exists")
+    # 6. Configure notifications (.env)
+    _configure_notifications(first_run=not ENV_FILE.exists())
 
     print()
     log("Setup complete!")
@@ -522,6 +606,7 @@ TELEGRAM_CHAT_ID={telegram_chat_id}
     print("  Next steps:")
     print("    ./whatsapp-start    Start driver + scheduler")
     print("    ./whatsapp-web      Open the web UI")
+    print("    ./configure         Re-run notification setup any time")
     print()
 
 
@@ -1186,6 +1271,7 @@ def main():
     sub.add_parser("update", help="Pull latest code + reinstall deps")
     sub.add_parser("install-service", help="Install systemd services (Linux)")
     sub.add_parser("uninstall", help="Remove venv, deps, and session (keep schedules)")
+    sub.add_parser("configure", help="Re-run email + Telegram notification setup")
 
     args = parser.parse_args()
 
@@ -1199,6 +1285,7 @@ def main():
         "update": cmd_update,
         "install-service": cmd_install_service,
         "uninstall": cmd_uninstall,
+        "configure": cmd_configure,
     }
 
     if args.command in commands:
