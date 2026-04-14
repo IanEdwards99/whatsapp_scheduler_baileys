@@ -1172,7 +1172,7 @@ WantedBy=timers.target
     # Copy to /etc/systemd/system, reload, enable, and start.
     service_files = [str(systemd_dir / n) for n in files]
     boot_services = ["whatsapp-driver", "whatsapp-scheduler", "whatsapp-maintenance.timer"]
-    start_services = ["whatsapp-driver", "whatsapp-scheduler"]
+    start_services = ["whatsapp-driver", "whatsapp-scheduler", "whatsapp-maintenance.timer"]
 
     steps = [
         (["sudo", "cp"] + service_files + ["/etc/systemd/system/"],
