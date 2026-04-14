@@ -458,61 +458,74 @@ TELEGRAM_CHAT_ID={values.get('TELEGRAM_CHAT_ID', '')}
     ENV_FILE.write_text(content)
 
 
-def _configure_notifications(first_run=False):
-    """Walk through email + Telegram setup, updating .env in place."""
+def _configure_notifications(first_run=False, force=False):
+    """Walk through email + Telegram setup, updating .env in place.
+
+    first_run: called from ./install for the very first time (no .env yet)
+    force:     called from ./configure — always offer to update every section
+    """
     values = _load_env_values()
 
     has_email = bool(values.get("EMAIL_USER") and values.get("EMAIL_PASS"))
     has_telegram = bool(values.get("TELEGRAM_TOKEN") and values.get("TELEGRAM_CHAT_ID"))
 
-    if not first_run and has_email and has_telegram:
+    # From ./install and everything is already set — nothing to do
+    if not force and not first_run and has_email and has_telegram:
         log(".env already configured (email + Telegram). Run ./configure to change.")
         return
 
-    if not first_run:
-        print()
-        _hr("═")
-        print("  NOTIFICATION SETUP")
-        _hr("═")
-        if has_email:
-            print(f"  Email    : already configured ({values.get('EMAIL_USER')})")
-        else:
-            print("  Email    : NOT configured")
-        if has_telegram:
-            print(f"  Telegram : already configured (chat {values.get('TELEGRAM_CHAT_ID')})")
-        else:
-            print("  Telegram : NOT configured")
-        print()
+    print()
+    _hr("═")
+    print("  NOTIFICATION SETUP")
+    _hr("═")
+    if has_email:
+        print(f"  Email    : {values.get('EMAIL_USER')}  [configured]")
+    else:
+        print("  Email    : not configured")
+    if has_telegram:
+        print(f"  Telegram : chat ID {values.get('TELEGRAM_CHAT_ID')}  [configured]")
+    else:
+        print("  Telegram : not configured")
+    print()
 
-    # Email
+    # ── Email ──────────────────────────────────────────
     if not has_email:
+        # Not set at all — run the full walkthrough
         email_user, email_pass, email_to = setup_email_walkthrough()
         if email_user and email_pass:
             values["EMAIL_USER"] = email_user
             values["EMAIL_PASS"] = email_pass
             values["EMAIL_TO"] = email_to
-    elif not first_run and _prompt_yes(
-        f"  Email is configured ({values['EMAIL_USER']}). Reconfigure?", default_yes=False
-    ):
-        email_user, email_pass, email_to = setup_email_walkthrough()
-        if email_user and email_pass:
-            values["EMAIL_USER"] = email_user
-            values["EMAIL_PASS"] = email_pass
-            values["EMAIL_TO"] = email_to
+    elif force:
+        # ./configure — always ask; default YES so Enter = update it
+        if _prompt_yes(
+            f"  Update email settings ({values['EMAIL_USER']})?", default_yes=True
+        ):
+            email_user, email_pass, email_to = setup_email_walkthrough()
+            if email_user and email_pass:
+                values["EMAIL_USER"] = email_user
+                values["EMAIL_PASS"] = email_pass
+                values["EMAIL_TO"] = email_to
+        else:
+            print("  Keeping existing email settings.")
 
-    # Telegram
+    # ── Telegram ───────────────────────────────────────
     if not has_telegram:
         telegram_token, telegram_chat_id = setup_telegram_walkthrough()
         if telegram_token:
             values["TELEGRAM_TOKEN"] = telegram_token
             values["TELEGRAM_CHAT_ID"] = telegram_chat_id
-    elif not first_run and _prompt_yes(
-        "  Telegram is configured. Reconfigure?", default_yes=False
-    ):
-        telegram_token, telegram_chat_id = setup_telegram_walkthrough()
-        if telegram_token:
-            values["TELEGRAM_TOKEN"] = telegram_token
-            values["TELEGRAM_CHAT_ID"] = telegram_chat_id
+    elif force:
+        if _prompt_yes(
+            f"  Update Telegram settings (chat {values.get('TELEGRAM_CHAT_ID')})?",
+            default_yes=True,
+        ):
+            telegram_token, telegram_chat_id = setup_telegram_walkthrough()
+            if telegram_token:
+                values["TELEGRAM_TOKEN"] = telegram_token
+                values["TELEGRAM_CHAT_ID"] = telegram_chat_id
+        else:
+            print("  Keeping existing Telegram settings.")
 
     if "DRIVER_URL" not in values:
         values["DRIVER_URL"] = "http://127.0.0.1:5001"
@@ -523,7 +536,7 @@ def _configure_notifications(first_run=False):
 
 def cmd_configure(args):
     """Re-run email and Telegram notification setup."""
-    _configure_notifications(first_run=False)
+    _configure_notifications(first_run=False, force=True)
     print()
     print("  Done. Restart services to pick up new settings:")
     print("    ./whatsapp-stop && ./whatsapp-start")
