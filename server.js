@@ -12,6 +12,7 @@ const bodyParser = require('body-parser');
 const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
+const qrcodeTerminal = require('qrcode-terminal');
 
 const app = express();
 app.use(bodyParser.json());
@@ -69,13 +70,20 @@ async function startWhatsApp() {
             }
         } else if (qr) {
             qrCodeData = qr;
-            console.log('QR Code received, saving to qr_code.png');
+            console.log('\n═══════════════════════════════════════════════════════════');
+            console.log('  SCAN THIS QR CODE WITH WHATSAPP');
+            console.log('  (WhatsApp → Settings → Linked Devices → Link a Device)');
+            console.log('═══════════════════════════════════════════════════════════\n');
+            qrcodeTerminal.generate(qr, { small: true });
+            console.log('\n  If the code is unreadable in this terminal, also available at:');
+            console.log('    • http://127.0.0.1:' + PORT + '/qr_code.png');
+            console.log('    • qr_code.png (in the project folder)');
+            console.log('    • your email / Telegram (if configured)\n');
             QRCode.toFile('qr_code.png', qr, {
                 width: 512,
                 margin: 2
             }, (err) => {
                 if (err) console.error('Error saving QR code:', err);
-                else console.log('QR code saved as qr_code.png');
             });
         }
     });

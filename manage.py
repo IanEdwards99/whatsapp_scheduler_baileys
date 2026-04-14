@@ -265,6 +265,169 @@ class QRWatcher(threading.Thread):
 
 
 # ─────────────────────────────────────────────
+# Setup walkthroughs
+# ─────────────────────────────────────────────
+
+def _hr(char="─", width=60):
+    print(char * width)
+
+
+def _prompt_yes(question, default_yes=True):
+    suffix = "[Y/n]" if default_yes else "[y/N]"
+    while True:
+        answer = input(f"{question} {suffix}: ").strip().lower()
+        if not answer:
+            return default_yes
+        if answer in ("y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+
+
+def setup_email_walkthrough():
+    """Walk the user through Gmail app password setup. Returns (user, pass, to)."""
+    print()
+    _hr("═")
+    print("  EMAIL NOTIFICATIONS (optional)")
+    _hr("═")
+    print()
+    print("  Email is used to:")
+    print("    • Deliver the WhatsApp QR code to your inbox on first run")
+    print("    • Alert you when scheduled messages fail to send")
+    print()
+    print("  You can skip this and set it up later by editing .env.")
+    print()
+
+    if not _prompt_yes("  Configure email now?", default_yes=True):
+        print("  Skipping email setup.")
+        return "", "", ""
+
+    print()
+    _hr()
+    print("  GMAIL APP PASSWORD — step-by-step")
+    _hr()
+    print()
+    print("  Gmail requires a 16-character 'App Password' (not your normal")
+    print("  password). This only works if 2-Factor Authentication is ON.")
+    print()
+    print("  1. Enable 2FA (if not already):")
+    print("       https://myaccount.google.com/signinoptions/two-step-verification")
+    print()
+    print("  2. Generate an App Password:")
+    print("       https://myaccount.google.com/apppasswords")
+    print("       • App name: 'WhatsApp Scheduler' (or anything)")
+    print("       • Click 'Create' — Google shows a 16-char code like:")
+    print("           abcd efgh ijkl mnop")
+    print("       • Copy it (spaces don't matter).")
+    print()
+    print("  3. Paste below. It won't be echoed for security.")
+    print()
+
+    email_user = input("  Gmail address: ").strip()
+    if not email_user:
+        print("  No address entered — skipping email.")
+        return "", "", ""
+
+    try:
+        import getpass
+        email_pass = getpass.getpass("  App Password (hidden): ").strip().replace(" ", "")
+    except Exception:
+        email_pass = input("  App Password: ").strip().replace(" ", "")
+
+    if not email_pass:
+        print("  No password entered — skipping email.")
+        return "", "", ""
+
+    print()
+    email_to = input(f"  Send alerts to [{email_user}]: ").strip() or email_user
+    print()
+    print(f"  ✓ Email configured: {email_user} → {email_to}")
+    return email_user, email_pass, email_to
+
+
+def setup_telegram_walkthrough():
+    """Walk the user through Telegram bot setup. Returns (token, chat_id)."""
+    print()
+    _hr("═")
+    print("  TELEGRAM BOT (optional)")
+    _hr("═")
+    print()
+    print("  A Telegram bot can:")
+    print("    • Send the WhatsApp QR code to your phone instantly")
+    print("    • Let you manage schedules from Telegram")
+    print()
+    print("  You can skip this and add it later by editing .env.")
+    print()
+
+    if not _prompt_yes("  Configure Telegram now?", default_yes=False):
+        print("  Skipping Telegram setup.")
+        return "", ""
+
+    print()
+    _hr()
+    print("  TELEGRAM BOT — step-by-step")
+    _hr()
+    print()
+    print("  STEP 1 — Create the bot")
+    print("    a. Open Telegram, search for:  @BotFather")
+    print("    b. Start a chat, send:         /newbot")
+    print("    c. Follow prompts — choose a display name, then a")
+    print("       username ending in 'bot' (e.g. MyScheduler_bot).")
+    print("    d. BotFather replies with a token that looks like:")
+    print("         123456789:ABCdefGHIjklMNOpqrsTUVwxyz-0123456789")
+    print("    e. Copy that token.")
+    print()
+
+    token = input("  Paste Bot Token: ").strip()
+    if not token:
+        print("  No token entered — skipping Telegram.")
+        return "", ""
+
+    print()
+    print("  STEP 2 — Find your Chat ID")
+    print(f"    a. Open Telegram and MESSAGE YOUR NEW BOT (say 'hi').")
+    print(f"       This is required — the bot can't find you otherwise.")
+    print(f"    b. Press Enter below; we'll fetch the chat ID for you.")
+    print()
+    input("  Press Enter once you have messaged the bot... ")
+
+    chat_id = ""
+    try:
+        import urllib.request
+        import json as _json
+        url = f"https://api.telegram.org/bot{token}/getUpdates"
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = _json.loads(resp.read().decode())
+        if data.get("ok") and data.get("result"):
+            for update in reversed(data["result"]):
+                msg = update.get("message") or update.get("edited_message")
+                if msg and msg.get("chat", {}).get("id"):
+                    chat_id = str(msg["chat"]["id"])
+                    name = msg["chat"].get("first_name") or msg["chat"].get("title") or "you"
+                    print(f"  ✓ Found chat: {name} (ID: {chat_id})")
+                    break
+        if not chat_id:
+            print("  Couldn't auto-detect chat ID. Did you message the bot?")
+    except Exception as e:
+        print(f"  Auto-detection failed ({e}).")
+
+    if not chat_id:
+        print()
+        print("  Manual fallback: open this URL in a browser —")
+        print(f"    https://api.telegram.org/bot{token}/getUpdates")
+        print("  Look for 'chat':{'id': NUMBER}  and enter it below.")
+        chat_id = input("  Chat ID: ").strip()
+
+    if not chat_id:
+        print("  No chat ID — skipping Telegram.")
+        return token, ""
+
+    print()
+    print(f"  ✓ Telegram configured (chat ID: {chat_id})")
+    return token, chat_id
+
+
+# ─────────────────────────────────────────────
 # Commands
 # ─────────────────────────────────────────────
 
@@ -333,21 +496,8 @@ def cmd_setup(args):
 
     # 6. Create .env interactively if missing
     if not ENV_FILE.exists():
-        log("Creating .env configuration...")
-        print()
-        print("Optional configuration (press Enter to skip any):")
-        print("-" * 50)
-
-        email_user = input("Gmail address (for alerts & QR delivery): ").strip()
-        email_pass = ""
-        if email_user:
-            email_pass = input("Gmail App Password (see https://myaccount.google.com/apppasswords): ").strip()
-        email_to = email_user  # Default: send to self
-
-        telegram_token = input("Telegram Bot Token (from @BotFather): ").strip()
-        telegram_chat_id = ""
-        if telegram_token:
-            telegram_chat_id = input("Telegram Chat ID (message your bot, then check /getUpdates): ").strip()
+        email_user, email_pass, email_to = setup_email_walkthrough()
+        telegram_token, telegram_chat_id = setup_telegram_walkthrough()
 
         env_content = f"""# WhatsApp Scheduler Configuration
 EMAIL_USER={email_user}
@@ -442,9 +592,25 @@ def cmd_start(args):
     driver_proc = subprocess.Popen(
         [node, "server.js"],
         cwd=str(PROJECT_DIR),
-        stdout=driver_log,
+        stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        bufsize=1,
+        universal_newlines=True,
     )
+
+    # Tee driver output to both terminal (so QR is visible) and driver.log
+    def _tee_driver():
+        try:
+            for line in driver_proc.stdout:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                driver_log.write(line)
+                driver_log.flush()
+        except Exception:
+            pass
+
+    tee_thread = threading.Thread(target=_tee_driver, daemon=True)
+    tee_thread.start()
     log(f"  Driver started (PID {driver_proc.pid})")
     log_to_file(f"Driver started PID={driver_proc.pid}")
 
@@ -899,6 +1065,98 @@ WantedBy=timers.target
     print()
 
 
+def cmd_uninstall(args):
+    """Remove venv, node_modules, session, and (optionally) all data."""
+    print()
+    _hr("═")
+    print("  UNINSTALL WhatsApp Scheduler")
+    _hr("═")
+    print()
+    print("  This will remove:")
+    print("    • Python virtual environment (venv/)")
+    print("    • Node.js dependencies (node_modules/)")
+    print("    • WhatsApp session data (baileys_auth_info/)")
+    print("    • Process tracking (pids.json, *.lock)")
+    print()
+    print("  By default, your schedules and configuration are KEPT so you can")
+    print("  reinstall later. You will be asked separately about deleting those.")
+    print()
+
+    if not _prompt_yes("  Proceed with uninstall?", default_yes=False):
+        log("Aborted.")
+        return
+
+    # Stop any running processes first
+    log("Stopping services...")
+    try:
+        cmd_stop(args)
+    except SystemExit:
+        pass
+    time.sleep(2)
+
+    # Core removals
+    targets = [
+        ("venv/", VENV_DIR),
+        ("node_modules/", PROJECT_DIR / "node_modules"),
+        ("baileys_auth_info/", PROJECT_DIR / "baileys_auth_info"),
+        ("qr_code.png", QR_FILE),
+        ("pids.json", PIDS_FILE),
+    ]
+    for label, path in targets:
+        if path.exists():
+            try:
+                if path.is_dir():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+                log(f"  Removed {label}")
+            except Exception as e:
+                log(f"  Could not remove {label}: {e}", "WARN")
+
+    # Lock files
+    for lock in PROJECT_DIR.glob("**/*.lock"):
+        try:
+            lock.unlink()
+        except Exception:
+            pass
+
+    print()
+    print("  DELETE USER DATA?")
+    print("    Schedules:      schedules/schedule.json")
+    print("    Message history: schedules/message_history.json")
+    print("    Configuration:   .env")
+    print("    Logs:            logs/")
+    print()
+
+    if _prompt_yes("  Also delete schedules, history, .env, and logs?", default_yes=False):
+        extras = [
+            ("schedules/", SCHEDULES_DIR),
+            (".env", ENV_FILE),
+            ("logs/", LOGS_DIR),
+        ]
+        for label, path in extras:
+            if path.exists():
+                try:
+                    if path.is_dir():
+                        shutil.rmtree(path)
+                    else:
+                        path.unlink()
+                    log(f"  Removed {label}")
+                except Exception as e:
+                    log(f"  Could not remove {label}: {e}", "WARN")
+    else:
+        print("  Keeping schedules, .env, and logs.")
+
+    print()
+    log("Uninstall complete.")
+    print()
+    print("  To fully remove the project, delete this folder:")
+    print(f"    {PROJECT_DIR}")
+    print()
+    print("  To reinstall, run: ./install")
+    print()
+
+
 # ─────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────
@@ -927,6 +1185,7 @@ def main():
     sub.add_parser("fresh-start", help="Clear session + re-authenticate")
     sub.add_parser("update", help="Pull latest code + reinstall deps")
     sub.add_parser("install-service", help="Install systemd services (Linux)")
+    sub.add_parser("uninstall", help="Remove venv, deps, and session (keep schedules)")
 
     args = parser.parse_args()
 
@@ -939,6 +1198,7 @@ def main():
         "fresh-start": cmd_fresh_start,
         "update": cmd_update,
         "install-service": cmd_install_service,
+        "uninstall": cmd_uninstall,
     }
 
     if args.command in commands:
