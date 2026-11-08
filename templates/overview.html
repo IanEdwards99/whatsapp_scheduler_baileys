@@ -99,7 +99,7 @@
                                         <small style="white-space: pre-wrap;">{{ schedule.message }}</small>
                                     </p>
                                     {% if schedule.type == 'status' %}
-                                        <p><strong>Selected viewers:</strong> {{ schedule.audience|length }}</p>
+                                        <p><strong>Viewers</strong> {{ 'Usual WhatsApp Status audience' if schedule.audience == 'phone' else schedule.audience|length }}</p>
                                     {% endif %}
                                 {% else %}
                                     <p style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee;">

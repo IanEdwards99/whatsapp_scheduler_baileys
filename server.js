@@ -1,5 +1,14 @@
 require('dotenv').config();
 
+// libsignal logs complete session objects through console, outside Baileys' logger.
+const sessionLogs = new Set(['Closing session:', 'Opening session:', 'Removing old closed session:', 'Session already closed']);
+for (const level of ['info', 'warn']) {
+    const write = console[level].bind(console);
+    console[level] = (message, ...args) => {
+        if (!sessionLogs.has(message)) write(message, ...args);
+    };
+}
+
 const {
     default: makeWASocket,
     DisconnectReason,
@@ -16,6 +25,7 @@ const path = require('path');
 const QRCode = require('qrcode');
 const qrcodeTerminal = require('qrcode-terminal');
 const { youtubePage, youtubePreview } = require('./youtube_preview');
+const { phoneStatusAudience } = require('./phone_status_audience');
 
 const app = express();
 app.use(bodyParser.json());
@@ -149,12 +159,13 @@ app.post('/send_message', async (req, res) => {
 
 app.post('/post_status', async (req, res) => {
     const { link, audience } = req.body || {};
+    const usePhoneAudience = audience === 'phone';
     if (typeof link !== 'string' || !link.startsWith('https://') ||
         /[\s<>"\x00-\x1f]/.test(link) || !youtubePage(link)) {
         return res.status(400).json({ success: false, message: 'Enter one HTTPS YouTube video or livestream link.' });
     }
-    if (!Array.isArray(audience) || audience.length < 1 || audience.length > 50 ||
-        audience.some(number => typeof number !== 'string' || !/^\+[1-9][0-9]{6,14}$/.test(number))) {
+    if (!usePhoneAudience && (!Array.isArray(audience) || audience.length < 1 || audience.length > 50 ||
+        audience.some(number => typeof number !== 'string' || !/^\+[1-9][0-9]{6,14}$/.test(number)))) {
         return res.status(400).json({ success: false, message: 'Choose 1–50 viewers using international numbers.' });
     }
     const client = sock;
@@ -163,19 +174,33 @@ app.post('/post_status', async (req, res) => {
     }
 
     try {
-        const recipients = [...new Set(audience.map(number => number.slice(1) + '@s.whatsapp.net'))];
-        const contacts = await client.onWhatsApp(...recipients);
-        const registered = new Set((contacts || []).filter(item => item.exists)
-            .map(item => jidNormalizedUser(item.jid)));
-        if (recipients.some(jid => !registered.has(jid))) {
-            return res.status(422).json({ success: false, message: 'Check the viewer list. WhatsApp could not confirm every number.' });
+        const content = await textContent(client, link);
+        let recipients;
+        let self;
+        if (usePhoneAudience) {
+            try {
+                ({ recipients, self } = await phoneStatusAudience(client));
+            } catch (error) {
+                console.warn('Could not resolve the usual WhatsApp Status audience:', error.name);
+                return res.status(422).json({
+                    success: false,
+                    message: 'Could not verify your usual Status audience. No Status was posted.'
+                });
+            }
+        } else {
+            recipients = [...new Set(audience.map(number => number.slice(1) + '@s.whatsapp.net'))];
+            const contacts = await client.onWhatsApp(...recipients);
+            const registered = new Set((contacts || []).filter(item => item.exists)
+                .map(item => jidNormalizedUser(item.jid)));
+            if (recipients.some(jid => !registered.has(jid))) {
+                return res.status(422).json({ success: false, message: 'Check the viewer list. WhatsApp could not confirm every number.' });
+            }
+            self = jidNormalizedUser(client.user.id);
         }
 
-        const self = jidNormalizedUser(client.user.id);
-        const content = await textContent(client, link);
         const messageId = generateMessageIDV2(client.user.id);
         const [ack] = await Promise.all([
-            client.waitForMessage(messageId, 30000),
+            client.waitForMessage(messageId, usePhoneAudience ? 45000 : 30000),
             client.sendMessage('status@broadcast', content, {
                 messageId,
                 statusJidList: [...new Set([...recipients, self])],

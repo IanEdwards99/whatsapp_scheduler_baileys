@@ -86,9 +86,9 @@
                             <input type="url" name="status_url" id="status_url" value="{{ request.form.get('status_url', '') }}">
                         </div>
                         <div class="form-group">
-                            <label for="audience">Status viewers</label>
+                            <label for="audience">Status viewers (optional)</label>
                             <textarea name="audience" id="audience" rows="2">{{ request.form.get('audience', '') }}</textarea>
-                            <small>Choose 1–50 people. Enter international numbers starting with +, separated by commas or new lines.</small>
+                            <small>Leave blank to use your usual WhatsApp Status audience. To choose individual viewers, enter up to 50 international numbers starting with +.</small>
                         </div>
                     </div>
 
@@ -141,7 +141,7 @@
             for (const id of ['status_url', 'audience']) {
                 const field = document.getElementById(id);
                 field.disabled = !isStatus;
-                field.required = isStatus;
+                field.required = isStatus && id === 'status_url';
             }
         }
         document.addEventListener('DOMContentLoaded', toggleContent);

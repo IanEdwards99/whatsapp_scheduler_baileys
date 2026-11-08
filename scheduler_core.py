@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 SCHEDULE_FILE = Path(__file__).resolve().parent / "schedules" / "schedule.json"
 RECURRENCES = ("daily", "weekly", "monthly")
 STATUS_CONTACT = "WhatsApp Status"
+PHONE_STATUS_AUDIENCE = "phone"
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 
 
@@ -51,6 +52,8 @@ def status_link(value):
 
 
 def status_audience(value):
+    if isinstance(value, str) and value.strip().lower() in ("", "default", PHONE_STATUS_AUDIENCE):
+        return PHONE_STATUS_AUDIENCE
     entries = re.split(r"[,\n]", value) if isinstance(value, str) else value
     if not isinstance(entries, list) or any(not isinstance(entry, str) for entry in entries):
         raise ValueError("Enter international phone numbers beginning with + and a country code.")
@@ -382,7 +385,7 @@ class MessageScheduler:
             response = requests.post(
                 f"{self.driver_server_url}/post_status",
                 json={"link": status_link(link), "audience": status_audience(audience)},
-                timeout=(3, 60),
+                timeout=(3, 80),
             )
             if response.status_code == 200:
                 return True, None

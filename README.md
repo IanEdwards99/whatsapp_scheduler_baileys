@@ -184,14 +184,16 @@ Messages still send if the preview is unavailable.
 ## Scheduling a WhatsApp Status
 
 Choose **WhatsApp Status** in the web form or use **Schedule Status** (`/addstatus`)
-in Telegram. Paste one YouTube video or channel livestream link and enter 1–50
-viewers using international phone numbers that start with `+`. Then choose a
-date, time, timezone, and repeat setting. Edit the link or viewers later with
-`/edit` or the web form.
+in Telegram. Paste one YouTube video or channel livestream link and choose a date,
+time, timezone, and repeat setting. Status schedules use your phone's current
+Status audience by default. The scheduler reads it when posting and skips the post
+if it cannot verify the audience.
 
-The selected viewers are used for that post. The scheduler leaves your phone's
-Status privacy settings alone. WhatsApp's acknowledgement confirms that it
-accepted the post. Visibility still depends on the viewer's WhatsApp account.
+To set individual viewers for a schedule, enter up to 50 international phone
+numbers in the web form, or use the `viewers` field in Telegram's `/edit` flow.
+Use `default` in Telegram to restore the usual audience. WhatsApp's acknowledgement
+confirms that it accepted the post. Visibility still depends on the viewer's
+WhatsApp account.
 
 ## Schedule Types
 

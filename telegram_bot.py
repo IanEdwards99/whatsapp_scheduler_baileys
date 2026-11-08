@@ -7,7 +7,9 @@ from filelock import Timeout
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telebot_calendar import Calendar, CallbackData, ENGLISH_LANGUAGE
 
-from scheduler_core import MessageScheduler, schedule_label, schedule_revision, schedule_zone, status_audience, status_link
+from scheduler_core import (
+    PHONE_STATUS_AUDIENCE, MessageScheduler, schedule_label, schedule_revision, schedule_zone, status_link,
+)
 
 load_dotenv()
 TOKEN = os.environ["TELEGRAM_TOKEN"]
@@ -33,7 +35,9 @@ DATE_PROMPT = "Enter the date and time as YYYY-MM-DD HH:MM, or choose a date bel
 ZONE_PROMPT = "Enter a timezone such as Africa/Johannesburg or Europe/Amsterdam, or type local for server time."
 REPEAT_PROMPT = "Enter daily, weekly, monthly, or none."
 STATUS_LINK_PROMPT = "Paste the YouTube video or livestream link to share on WhatsApp Status."
-STATUS_AUDIENCE_PROMPT = "Enter 1–50 Status viewers as international phone numbers starting with +, separated by commas."
+STATUS_AUDIENCE_PROMPT = (
+    "Type default to use your usual WhatsApp Status audience, or enter up to 50 international numbers starting with +."
+)
 FIELDS = {
     "contact": ("contact", "Enter the contact or WhatsApp group."),
     "message": ("message", "Enter the new message."),
@@ -155,11 +159,8 @@ def handle_step(text):
         state.update(step="zone", message=text)
         reply(ZONE_PROMPT)
     elif step == "status_link":
-        state.update(step="status_audience", link=status_link(text))
-        reply(STATUS_AUDIENCE_PROMPT)
-    elif step == "status_audience":
-        state.update(step="zone", audience=status_audience(text))
-        reply(ZONE_PROMPT)
+        state.update(step="zone", link=status_link(text), audience=PHONE_STATUS_AUDIENCE)
+        reply("This uses your usual WhatsApp Status audience. " + ZONE_PROMPT)
     elif step == "zone":
         state["timezone"] = timezone_input(text)
         ask_date()
@@ -180,7 +181,7 @@ def handle_step(text):
                 return
             raise
         state.clear()
-        viewers = f" Viewers selected: {len(added['audience'])}." if added["type"] == "status" else ""
+        viewers = " It will use your usual WhatsApp Status audience." if added["type"] == "status" else ""
         reply(f"Schedule added for {added['contact']} at {schedule_label(added)}.{viewers}")
     elif step in ("edit", "delete"):
         try:
