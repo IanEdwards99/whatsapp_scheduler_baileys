@@ -18,6 +18,7 @@
                 <a href="/history" class="nav-link">History</a>
             
                 <form action="/shutdown" method="post" style="display: inline; float: right;">
+                    <input type="hidden" name="csrf" value="{{ csrf_token }}">
                     <button type="submit" class="nav-link" style="background: none; border: none; cursor: pointer; color: #dc3545; font-weight: bold; margin-left: 15px;" onclick="return confirm("Are you sure you want to completely shut down the server?");">🛑 Shutdown</button>
                 </form>
             </nav>
@@ -28,6 +29,7 @@
                 <h2>➕ Create New Schedule</h2>
 
                 <form method="POST" class="add-form">
+                    <input type="hidden" name="csrf" value="{{ csrf_token }}">
                     <div class="form-group">
                         <label for="type">Message Type</label>
                         <div class="button-group">
@@ -85,8 +87,20 @@
 
                     <div class="form-group" id="datetime-group">
                         <label for="datetime">Send Date & Time</label>
-                        <input type="datetime-local" name="datetime" id="datetime" required>
+                        <input type="datetime-local" name="datetime" id="datetime" value="{{ request.form.get('datetime', '') }}" required>
                         <small id="recurring-hint" style="display:none;"></small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="timezone">Timezone</label>
+                        <input type="text" name="timezone" id="timezone" list="timezones" value="{{ request.form.get('timezone', '') }}"
+                            placeholder="Server local time">
+                        <datalist id="timezones">
+                            <option value="Africa/Johannesburg">
+                            <option value="Europe/Amsterdam">
+                            <option value="UTC">
+                        </datalist>
+                        <small>Enter an IANA timezone. Leave blank for server local time.</small>
                     </div>
 
                     <div class="form-actions">
@@ -164,7 +178,12 @@
             now.setHours(now.getHours() + 1);
             now.setMinutes(0);
             const localISOTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-            document.getElementById('datetime').value = localISOTime;
+            if (!document.getElementById('datetime').value) {
+                document.getElementById('datetime').value = localISOTime;
+            }
+            {% if request.method == 'GET' %}
+            document.getElementById('timezone').value = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+            {% endif %}
         });
     </script>
 </body>

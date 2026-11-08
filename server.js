@@ -13,11 +13,13 @@ const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
 const qrcodeTerminal = require('qrcode-terminal');
+const { youtubePreview } = require('./youtube_preview');
 
 const app = express();
 app.use(bodyParser.json());
 
-const PORT = process.env.PORT || 5001;
+const PORT = Number(process.env.PORT || 5001);
+const HOST = '127.0.0.1';
 let sock = null;
 let isConnected = false;
 let qrCodeData = null;
@@ -113,7 +115,7 @@ function formatContactId(contact) {
 
 app.post('/send_message', async (req, res) => {
     let { contact, message } = req.body;
-    if (!contact || !message) {
+    if (typeof contact !== 'string' || !contact || typeof message !== 'string' || !message) {
         return res.status(400).json({ success: false, message: 'Missing contact or message' });
     }
 
@@ -124,7 +126,14 @@ app.post('/send_message', async (req, res) => {
         }
         
         console.log(`Sending message to ${jid}`);
-        await sock.sendMessage(jid, { text: message });
+        const client = sock;
+        let linkPreview = null;
+        try {
+            linkPreview = await youtubePreview(message, client.waUploadToServer);
+        } catch (error) {
+            console.warn('YouTube preview unavailable:', error.name);
+        }
+        await client.sendMessage(jid, { text: message, linkPreview });
         res.json({ success: true, chatId: jid });
     } catch (e) {
         console.error(e);
@@ -197,6 +206,6 @@ app.get('/qr_code.png', (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Baileys Driver started on port ${PORT}`);
+app.listen(PORT, HOST, () => {
+    console.log(`Baileys Driver listening on ${HOST}:${PORT}`);
 });

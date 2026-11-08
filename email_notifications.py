@@ -166,7 +166,7 @@ Automated alert from WhatsApp Scheduler on Raspberry Pi.
             msg.attach(MIMEText(html_body, 'html'))
             
             # Send email
-            with smtplib.SMTP(self.config['smtp_server'], self.config['smtp_port']) as server:
+            with smtplib.SMTP(self.config['smtp_server'], self.config['smtp_port'], timeout=10) as server:
                 server.starttls()
                 server.login(self.config['sender_email'], self.config['sender_password'])
                 server.send_message(msg)

@@ -23,6 +23,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import textwrap
 import threading
 import time
@@ -36,6 +37,13 @@ LOGS_DIR = PROJECT_DIR / "logs"
 ENV_FILE = PROJECT_DIR / ".env"
 QR_FILE = PROJECT_DIR / "qr_code.png"
 SCHEDULES_DIR = PROJECT_DIR / "schedules"
+SERVICE_NAMES = {
+    "driver": "whatsapp-driver.service",
+    "scheduler": "whatsapp-scheduler.service",
+    "flask": "whatsapp-flask.service",
+}
+MAINTENANCE_TIMER = "whatsapp-maintenance.timer"
+MAINTENANCE_SERVICE = "whatsapp-maintenance.service"
 
 IS_WINDOWS = platform.system() == "Windows"
 IS_LINUX = platform.system() == "Linux"
@@ -64,40 +72,67 @@ def log_to_file(msg):
         f.write(f"[{datetime.now().isoformat()}] {msg}\n")
 
 
+def unit_info(name):
+    if not IS_LINUX or not shutil.which("systemctl"):
+        return {}
+    result = subprocess.run(
+        ["systemctl", "show", name, "--property=LoadState,ActiveState,WorkingDirectory,MainPID"],
+        capture_output=True, text=True,
+    )
+    return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+
+
+def service_info():
+    return {
+        name: info for name, unit in SERVICE_NAMES.items()
+        if (info := unit_info(unit)).get("LoadState") == "loaded"
+        and info.get("WorkingDirectory") == str(PROJECT_DIR)
+    }
+
+
+def systemctl(action, *units):
+    if subprocess.run(["sudo", "systemctl", action, *units]).returncode != 0:
+        raise SystemExit(f"systemctl {action} failed for {' '.join(units)}")
+
+
+def services_for(args, services):
+    if getattr(args, "script", False):
+        return False
+    if getattr(args, "service", False) and not {"driver", "scheduler"} <= services.keys():
+        raise SystemExit("Run python3 manage.py deploy to install the services for this checkout.")
+    return {"driver", "scheduler"} <= services.keys()
+
+
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
-def get_local_ip():
-    """Return the LAN IP of this machine (falls back to 127.0.0.1)."""
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-    except Exception:
-        return "127.0.0.1"
-
-
-def is_wsl():
-    """True when running inside WSL (Windows Subsystem for Linux)."""
-    try:
-        return "microsoft" in platform.release().lower()
-    except Exception:
-        return False
-
-
 def is_pid_alive(pid):
-    """Check if a process with given PID is running (cross-platform)."""
-    if pid is None:
+    """Check for a running process without signaling it on Windows."""
+    if not isinstance(pid, int) or pid <= 0:
         return False
+    if IS_WINDOWS:
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32")
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+        if not handle:
+            return False
+        try:
+            return kernel.WaitForSingleObject(handle, 0) == 258  # WAIT_TIMEOUT
+        finally:
+            kernel.CloseHandle(handle)
     try:
         os.kill(pid, 0)
         return True
-    except (OSError, ProcessLookupError):
+    except ProcessLookupError:
         return False
-    except SystemError:
-        return False
+    except PermissionError:
+        return True
 
 
 def read_pids():
@@ -473,7 +508,11 @@ DRIVER_URL={values.get('DRIVER_URL', 'http://127.0.0.1:5001')}
 TELEGRAM_TOKEN={values.get('TELEGRAM_TOKEN', '')}
 TELEGRAM_CHAT_ID={values.get('TELEGRAM_CHAT_ID', '')}
 """
-    ENV_FILE.write_text(content)
+    fd = os.open(ENV_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as file:
+        file.write(content)
+    if not IS_WINDOWS:
+        ENV_FILE.chmod(0o600)
 
 
 def _configure_notifications(first_run=False, force=False):
@@ -581,15 +620,15 @@ def cmd_setup(args):
 
     node_ver = subprocess.run([node, "--version"], capture_output=True, text=True).stdout.strip()
     major = int(node_ver.lstrip("v").split(".")[0])
-    if major < 16:
-        log(f"Node.js >= 16 required, found {node_ver}", "ERROR")
+    if major < 20:
+        log(f"Node.js >= 20 required, found {node_ver}", "ERROR")
         sys.exit(1)
     log(f"Node.js {node_ver} OK")
 
     py_ver = platform.python_version()
     py_major, py_minor = int(py_ver.split(".")[0]), int(py_ver.split(".")[1])
-    if py_major < 3 or (py_major == 3 and py_minor < 8):
-        log(f"Python >= 3.8 required, found {py_ver}", "ERROR")
+    if py_major < 3 or (py_major == 3 and py_minor < 9):
+        log(f"Python >= 3.9 required, found {py_ver}", "ERROR")
         sys.exit(1)
     log(f"Python {py_ver} OK")
 
@@ -642,14 +681,28 @@ def cmd_setup(args):
 
 
 def cmd_start(args):
-    """Start driver + scheduler with process supervision."""
+    """Start the installed services or run the foreground supervisor."""
     check_setup_done()
+    services = service_info()
+    if services_for(args, services):
+        pids = read_pids()
+        if any(is_pid_alive(pids.get(name, {}).get("pid")) for name in ("driver", "scheduler", "supervisor")):
+            raise SystemExit("Run python3 manage.py stop --script first.")
+        units = [SERVICE_NAMES["driver"], SERVICE_NAMES["scheduler"]]
+        if unit_info(MAINTENANCE_TIMER).get("LoadState") == "loaded":
+            units.append(MAINTENANCE_TIMER)
+        systemctl("start", *units)
+        cmd_status(args)
+        return
+    if any(services.get(name, {}).get("ActiveState") in ("active", "activating", "reloading")
+           for name in ("driver", "scheduler")):
+        raise SystemExit("Stop the systemd services before starting in script mode.")
 
     # Check if already running
     pids = read_pids()
     if pids.get("driver", {}).get("pid") and is_pid_alive(pids["driver"]["pid"]):
         log("Driver is already running (PID {})".format(pids["driver"]["pid"]))
-        log("Run ./whatsapp-stop first, or ./whatsapp-status to check.")
+        log("Run python3 manage.py stop first, or use the status command.")
         sys.exit(1)
 
     if is_port_in_use(5001):
@@ -683,7 +736,7 @@ def cmd_start(args):
                 log(f"  Stopping {name} (PID {proc.pid})...")
                 proc.terminate()
                 try:
-                    proc.wait(timeout=10)
+                    proc.wait(timeout=75 if name == "scheduler" else 10)
                 except subprocess.TimeoutExpired:
                     log(f"  Force killing {name}...")
                     proc.kill()
@@ -691,8 +744,10 @@ def cmd_start(args):
         driver_log.close()
         scheduler_log.close()
 
-        if PIDS_FILE.exists():
-            PIDS_FILE.unlink()
+        pids = read_pids()
+        for name in ("driver", "scheduler", "supervisor"):
+            pids.pop(name, None)
+        write_pids(pids)
 
         log("Stopped.")
         log_to_file("Shutdown complete")
@@ -734,10 +789,12 @@ def cmd_start(args):
     qr_watcher.start()
 
     # Write initial PIDs
-    write_pids({
-        "driver": {"pid": driver_proc.pid, "started_at": datetime.now().isoformat()},
-        "supervisor": {"pid": os.getpid(), "started_at": datetime.now().isoformat()},
-    })
+    pids_data = read_pids()
+    pids_data.update(
+        driver={"pid": driver_proc.pid, "started_at": datetime.now().isoformat()},
+        supervisor={"pid": os.getpid(), "started_at": datetime.now().isoformat()},
+    )
+    write_pids(pids_data)
 
     # Wait for driver to be ready
     log("Waiting for driver to connect...")
@@ -850,12 +907,21 @@ def cmd_start(args):
 
 
 def cmd_web(args):
-    """Start Flask web UI on-demand."""
+    """Start Flask on-demand against the shared queue."""
     check_setup_done()
+    if getattr(args, "service", False):
+        if "flask" not in service_info():
+            raise SystemExit("Run python3 manage.py deploy to install the web service.")
+        if is_pid_alive(read_pids().get("flask", {}).get("pid")):
+            raise SystemExit("Stop the script-mode web UI before starting the service.")
+        systemctl("start", SERVICE_NAMES["flask"])
+        log("Flask service started at http://127.0.0.1:5000")
+        return
 
     if is_port_in_use(5000):
         log("Port 5000 is already in use (Flask may already be running).", "WARN")
-        open_browser("http://127.0.0.1:5000")
+        if not os.environ.get("SSH_CONNECTION"):
+            open_browser("http://127.0.0.1:5000")
         return
 
     LOGS_DIR.mkdir(exist_ok=True)
@@ -879,12 +945,12 @@ def cmd_web(args):
         log("Flask failed to start! Check logs/flask.log", "ERROR")
         return
 
-    # On WSL2, 127.0.0.1 resolves to Windows localhost in the browser, not WSL.
-    # Use the real LAN IP so the link actually works.
-    host = get_local_ip() if is_wsl() else "127.0.0.1"
-    url = f"http://{host}:5000"
+    url = "http://127.0.0.1:5000"
     log(f"Flask running at {url}")
-    open_browser(url)
+    if os.environ.get("SSH_CONNECTION"):
+        log("Forward local port 5000 to 127.0.0.1:5000 on this host to open it remotely.")
+    else:
+        open_browser(url)
     log("Press Ctrl+C to stop the web UI.")
 
     flask_stopping = False
@@ -913,72 +979,74 @@ def cmd_web(args):
     signal.signal(signal.SIGTERM, cleanup)
 
     flask_proc.wait()
+    flask_log.close()
+    pids = read_pids()
+    if pids.get("flask", {}).get("pid") == flask_proc.pid:
+        pids.pop("flask")
+        write_pids(pids)
 
 
 def cmd_stop(args):
-    """Stop all running processes."""
-    pids = read_pids()
-    stopped_any = False
+    """Stop systemd services, script processes, or both."""
+    services = service_info()
+    if getattr(args, "service", False):
+        services_for(args, services)
+    if not getattr(args, "script", False) and services:
+        units = []
+        if {"driver", "scheduler"} <= services.keys():
+            units.extend(unit for unit in (MAINTENANCE_TIMER, MAINTENANCE_SERVICE)
+                         if unit_info(unit).get("LoadState") == "loaded")
+        units.extend(SERVICE_NAMES[name] for name in ("flask", "scheduler", "driver") if name in services)
+        if units:
+            systemctl("stop", *units)
+    if getattr(args, "service", False):
+        return
 
-    for name in ["flask", "scheduler", "driver", "supervisor"]:
-        info = pids.get(name, {})
-        pid = info.get("pid")
-        if pid and is_pid_alive(pid):
-            log(f"Stopping {name} (PID {pid})...")
-            try:
-                os.kill(pid, signal.SIGTERM)
-                # Wait for graceful shutdown
-                for _ in range(50):  # 5 seconds
-                    if not is_pid_alive(pid):
-                        break
-                    time.sleep(0.1)
-                if is_pid_alive(pid):
-                    log(f"  Force killing {name}...")
-                    os.kill(pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-            stopped_any = True
-
-    # Fallback: kill by process name
-    if not IS_WINDOWS:
-        for pattern in ["node server.js", "background_scheduler.py", "app.py"]:
-            subprocess.run(
-                ["pkill", "-f", pattern],
-                capture_output=True,
-            )
-
-    if PIDS_FILE.exists():
-        PIDS_FILE.unlink()
-
-    if stopped_any:
-        log("All processes stopped.")
-    else:
-        log("No running processes found.")
+    for name in ("flask", "supervisor", "scheduler", "driver"):
+        pid = read_pids().get(name, {}).get("pid")
+        if not is_pid_alive(pid):
+            continue
+        log(f"Stopping script-mode {name} (PID {pid})...")
+        try:
+            os.kill(pid, signal.SIGTERM)
+            deadline = time.monotonic() + (90 if name in ("supervisor", "scheduler") else 5)
+            while is_pid_alive(pid) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            if is_pid_alive(pid) and hasattr(signal, "SIGKILL"):
+                os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    PIDS_FILE.unlink(missing_ok=True)
 
 
 def cmd_status(args):
     """Show status of all processes."""
     pids = read_pids()
+    services = service_info()
 
     print()
     print("  WhatsApp Scheduler Status")
     print("  " + "=" * 40)
 
-    for name in ["driver", "scheduler", "flask", "supervisor"]:
-        info = pids.get(name, {})
-        pid = info.get("pid")
-        started = info.get("started_at", "")
-        alive = is_pid_alive(pid)
-        status = "RUNNING" if alive else "STOPPED"
-        marker = "+" if alive else "-"
-        pid_str = f"PID {pid}" if pid else ""
-        print(f"  [{marker}] {name:12s} {status:8s} {pid_str:10s} {started}")
+    for name in ("driver", "scheduler", "flask", "supervisor"):
+        service = services.get(name)
+        if service:
+            state = service.get("ActiveState", "unknown")
+            main_pid = service.get("MainPID", "0")
+            pid_text = f" (PID {main_pid})" if main_pid != "0" else ""
+            print(f"  {name:12s} systemd {state}{pid_text}")
+        pid = pids.get(name, {}).get("pid")
+        if is_pid_alive(pid):
+            print(f"  {name:12s} script  running (PID {pid})")
+        elif not service and (name != "supervisor" or pids):
+            print(f"  {name:12s} script  stopped")
 
     # Check driver connection
     try:
         import urllib.request
-        resp = urllib.request.urlopen("http://127.0.0.1:5001/status", timeout=3)
-        data = json.loads(resp.read())
+        driver_url = os.environ.get("DRIVER_URL") or _load_env_values().get("DRIVER_URL") or "http://127.0.0.1:5001"
+        with urllib.request.urlopen(f"{driver_url.rstrip('/')}/status", timeout=3) as response:
+            data = json.load(response)
         connected = data.get("ready", False)
         print()
         print(f"  WhatsApp: {'Connected' if connected else 'Not connected (needs QR scan)'}")
@@ -1018,37 +1086,33 @@ def cmd_fresh_start(args):
     log("Session cleared. Run ./whatsapp-start to re-authenticate.")
 
 
+def install_dependencies():
+    subprocess.run([str(VENV_PYTHON), "-m", "pip", "install", "-r", str(PROJECT_DIR / "requirements.txt")],
+                   check=True)
+    npm = shutil.which("npm")
+    if not npm:
+        raise SystemExit("npm is required to install the driver dependencies.")
+    subprocess.run([npm, "install"], cwd=PROJECT_DIR, check=True)
+
+
+def cmd_deploy(args):
+    if not IS_LINUX:
+        raise SystemExit("Systemd deployment requires Linux.")
+    if not VENV_PYTHON.exists():
+        raise SystemExit("Run python3 manage.py setup first.")
+    install_dependencies()
+    cmd_install_service(args)
+
+
 def cmd_update(args):
-    """Pull latest changes and reinstall dependencies."""
-    log("Checking for updates...")
-
-    # Git pull
-    result = subprocess.run(
-        ["git", "pull"],
-        cwd=str(PROJECT_DIR),
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        log(f"git pull failed: {result.stderr}", "ERROR")
-        sys.exit(1)
-
-    if "Already up to date" in result.stdout:
-        log("Already up to date.")
-        return
-
-    print(result.stdout.strip())
-    log("Code updated. Reinstalling dependencies...")
-
-    # Reinstall deps
-    subprocess.run(
-        [str(VENV_PIP), "install", "-r", str(PROJECT_DIR / "requirements.txt")],
-        check=True,
-    )
-    subprocess.run(["npm", "install"], cwd=str(PROJECT_DIR), check=True)
-
-    log("Update complete!")
-    log("Restart services with: ./whatsapp-stop && ./whatsapp-start")
+    """Pull latest changes and redeploy installed services."""
+    subprocess.run(["git", "pull", "--ff-only"], cwd=PROJECT_DIR, check=True)
+    if {"driver", "scheduler"} <= service_info().keys():
+        # Use the newly pulled management code when installing the updated units.
+        subprocess.run([sys.executable, str(PROJECT_DIR / "manage.py"), "deploy"], check=True)
+    else:
+        install_dependencies()
+        log("Update complete. Restart script mode to load the changes.")
 
 
 def cmd_install_service(args):
@@ -1057,29 +1121,37 @@ def cmd_install_service(args):
         log("systemd services are only available on Linux.", "ERROR")
         sys.exit(1)
 
-    import getpass
-    user = getpass.getuser()
+    import pwd
+    check_setup_done()
+    user = pwd.getpwuid(os.getuid()).pw_name
+    if os.getuid() == 0:
+        raise SystemExit("Run this command as the account that owns the scheduler.")
     node_path = find_node()
-
-    systemd_dir = PROJECT_DIR / "systemd"
-    systemd_dir.mkdir(exist_ok=True)
+    for unit in SERVICE_NAMES.values():
+        info = unit_info(unit)
+        if info.get("LoadState") == "loaded" and info.get("WorkingDirectory") != str(PROJECT_DIR):
+            raise SystemExit(f"{unit} belongs to another checkout. Inspect its WorkingDirectory first.")
+    pids = read_pids()
+    if any(is_pid_alive(info.get("pid")) for info in pids.values()):
+        raise SystemExit("Run python3 manage.py stop --script before deploying.")
 
     # Driver service
     driver_service = f"""[Unit]
 Description=WhatsApp Driver Server (Baileys)
-After=network.target
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User={user}
 WorkingDirectory={PROJECT_DIR}
+UMask=0077
 ExecStart={node_path} server.js
 Restart=on-failure
-RestartSec=30
-TimeoutStopSec=300
-TimeoutStartSec=infinity
-StartLimitIntervalSec=600
-StartLimitBurst=5
+RestartSec=10
+TimeoutStopSec=20
 MemoryHigh=650M
 MemoryMax=800M
 StandardOutput=journal
@@ -1093,15 +1165,18 @@ WantedBy=multi-user.target
     scheduler_service = f"""[Unit]
 Description=WhatsApp Background Scheduler
 After=network.target whatsapp-driver.service
-Requires=whatsapp-driver.service
+Wants=whatsapp-driver.service
 
 [Service]
 Type=simple
 User={user}
 WorkingDirectory={PROJECT_DIR}
+UMask=0077
+Environment=WHATSAPP_SYSTEMD=1
 Environment=PATH={VENV_DIR}/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-/home/{user}/.whatsapp-scheduler-email
 ExecStart={VENV_PYTHON} background_scheduler.py
+TimeoutStopSec=90
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -1121,6 +1196,7 @@ Type=simple
 User={user}
 WorkingDirectory={PROJECT_DIR}
 Environment=PATH={VENV_DIR}/bin:/usr/local/bin:/usr/bin:/bin
+UMask=0077
 ExecStart={VENV_PYTHON} app.py
 Restart=on-failure
 RestartSec=10
@@ -1132,15 +1208,14 @@ WantedBy=multi-user.target
 """
 
     # Maintenance service + timer
-    maintenance_service = f"""[Unit]
-Description=WhatsApp Scheduler Daily Maintenance
+    maintenance_service = """[Unit]
+Description=WhatsApp Driver Health Check
 After=network.target
 
 [Service]
 Type=oneshot
-User=root
-WorkingDirectory={PROJECT_DIR}
-ExecStart={PROJECT_DIR}/daily_maintenance.sh
+ExecCondition=/usr/bin/systemctl is-active --quiet whatsapp-driver.service
+ExecStart=/bin/sh -c '/usr/bin/curl -fsS --max-time 10 http://127.0.0.1:5001/status >/dev/null || /usr/bin/systemctl try-restart whatsapp-driver.service'
 """
 
     maintenance_timer = """[Unit]
@@ -1162,41 +1237,21 @@ WantedBy=timers.target
         "whatsapp-maintenance.timer": maintenance_timer,
     }
 
-    for name, content in files.items():
-        (systemd_dir / name).write_text(content)
-        log(f"  Generated {name}")
-
-    print()
-    log("Service files generated in systemd/")
-
-    # Copy to /etc/systemd/system, reload, enable, and start.
-    service_files = [str(systemd_dir / n) for n in files]
-    boot_services = ["whatsapp-driver", "whatsapp-scheduler", "whatsapp-maintenance.timer"]
-    start_services = ["whatsapp-driver", "whatsapp-scheduler", "whatsapp-maintenance.timer"]
-
-    steps = [
-        (["sudo", "cp"] + service_files + ["/etc/systemd/system/"],
-         "Copying service files to /etc/systemd/system/"),
-        (["sudo", "systemctl", "daemon-reload"],
-         "Reloading systemd"),
-        (["sudo", "systemctl", "enable"] + boot_services,
-         "Enabling services on boot"),
-        (["sudo", "systemctl", "start"] + start_services,
-         "Starting services"),
-    ]
-
-    for cmd, desc in steps:
-        log(desc + "...")
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
-            log(f"Command failed: {' '.join(cmd)}", "ERROR")
-            log("Fix the issue above, then re-run: python manage.py install-service", "ERROR")
-            sys.exit(1)
-
-    print()
-    log("Services installed, enabled, and started.")
-    log("Flask is on-demand — start it with:  sudo systemctl start whatsapp-flask")
-    print()
+    boot_services = [SERVICE_NAMES["driver"], SERVICE_NAMES["scheduler"], MAINTENANCE_TIMER]
+    web_running = unit_info(SERVICE_NAMES["flask"]).get("ActiveState") == "active"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        service_files = []
+        for name, content in files.items():
+            path = Path(temp_dir) / name
+            path.write_text(content)
+            service_files.append(str(path))
+        subprocess.run(["systemd-analyze", "verify", *service_files], check=True)
+        subprocess.run(["sudo", "install", "-m", "0644", *service_files, "/etc/systemd/system/"], check=True)
+    systemctl("daemon-reload")
+    systemctl("enable", *boot_services)
+    restart_units = boot_services + ([SERVICE_NAMES["flask"]] if web_running else [])
+    systemctl("restart", *restart_units)
+    log("Services deployed. Use python3 manage.py status to check readiness.")
 
 
 def cmd_uninstall(args):
@@ -1222,10 +1277,7 @@ def cmd_uninstall(args):
 
     # Stop any running processes first
     log("Stopping services...")
-    try:
-        cmd_stop(args)
-    except SystemExit:
-        pass
+    cmd_stop(args)
     time.sleep(2)
 
     # Core removals
@@ -1312,13 +1364,18 @@ def main():
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("setup", help="One-time project setup")
-    sub.add_parser("start", help="Start driver + scheduler")
-    sub.add_parser("web", help="Start Flask web UI (on-demand)")
-    sub.add_parser("stop", help="Stop all processes")
+    for action, description in (("start", "Start driver and scheduler"), ("stop", "Stop the scheduler stack")):
+        command = sub.add_parser(action, help=description)
+        mode = command.add_mutually_exclusive_group()
+        mode.add_argument("--script", action="store_true", help="Manage only foreground script processes")
+        mode.add_argument("--service", action="store_true", help="Manage only installed systemd services")
+    web = sub.add_parser("web", help="Start the on-demand web UI")
+    web.add_argument("--service", action="store_true", help="Use the installed systemd web service")
     sub.add_parser("status", help="Show running processes")
     sub.add_parser("fresh-start", help="Clear session + re-authenticate")
     sub.add_parser("update", help="Pull latest code + reinstall deps")
-    sub.add_parser("install-service", help="Install systemd services (Linux)")
+    sub.add_parser("install-service", help="Install systemd services using existing dependencies")
+    sub.add_parser("deploy", help="Install dependencies and deploy systemd services (Linux)")
     sub.add_parser("uninstall", help="Remove venv, deps, and session (keep schedules)")
     sub.add_parser("configure", help="Re-run email + Telegram notification setup")
 
@@ -1333,6 +1390,7 @@ def main():
         "fresh-start": cmd_fresh_start,
         "update": cmd_update,
         "install-service": cmd_install_service,
+        "deploy": cmd_deploy,
         "uninstall": cmd_uninstall,
         "configure": cmd_configure,
     }

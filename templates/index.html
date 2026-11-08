@@ -39,6 +39,7 @@
                 <a href="/history" class="nav-link">History</a>
             
                 <form action="/shutdown" method="post" style="display: inline; float: right;">
+                    <input type="hidden" name="csrf" value="{{ csrf_token }}">
                     <button type="submit" class="nav-link" style="background: none; border: none; cursor: pointer; color: #dc3545; font-weight: bold; margin-left: 15px;" onclick="return confirm("Are you sure you want to completely shut down the server?");">🛑 Shutdown</button>
                 </form>
             </nav>
@@ -94,13 +95,7 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {% set next_run = schedule.get('next_run', schedule.time) %}
-                                        {% if 'T' in next_run %}
-                                            <strong>{{ next_run[:10] }}</strong><br>
-                                            <small>{{ next_run[11:16] }}</small>
-                                        {% else %}
-                                            <strong>{{ next_run }}</strong>
-                                        {% endif %}
+                                        {{ schedule_label(schedule) }}
                                     </td>
                                     <td>
                                         <span class="status-badge status-{{ schedule.get('status', 'pending') }}">
@@ -109,8 +104,12 @@
                                     </td>
                                     <td>{{ schedule.recurring or 'Once' }}</td>
                                     <td>
-                                        <a href="/edit/{{ loop.index0 }}" class="action-link edit-link">✏️ Edit</a>
-                                        <a href="/delete/{{ loop.index0 }}" class="action-link delete-link">🗑️ Delete</a>
+                                        <a href="{{ url_for('edit_schedule', key=schedule.id) }}" class="action-link edit-link">✏️ Edit</a>
+                                        <form action="{{ url_for('delete_schedule', key=schedule.id) }}" method="post" style="display:inline">
+                                            <input type="hidden" name="csrf" value="{{ csrf_token }}">
+                                            <input type="hidden" name="revision" value="{{ schedule_revision(schedule) }}">
+                                            <button type="submit" class="action-link delete-link">🗑️ Delete</button>
+                                        </form>
                                     </td>
                                 </tr>
                             {% endfor %}

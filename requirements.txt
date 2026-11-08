@@ -3,3 +3,4 @@ requests==2.32.0
 python-dotenv==1.0.0
 telebot-calendar==1.2
 filelock>=3.12.0
+tzdata>=2025.2; platform_system == 'Windows'

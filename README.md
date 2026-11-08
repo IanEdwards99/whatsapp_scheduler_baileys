@@ -8,8 +8,8 @@ Works on Linux, macOS, Windows (WSL or native), and Raspberry Pi.
 
 ### Prerequisites
 
-- **Node.js** >= 16 ([nodejs.org](https://nodejs.org/))
-- **Python** >= 3.8
+- **Node.js** >= 20 ([nodejs.org](https://nodejs.org/))
+- **Python** >= 3.9
 
 ### Install
 
@@ -138,30 +138,48 @@ TELEGRAM_CHAT_ID=your-chat-id
 
 For Gmail, use an [App Password](https://myaccount.google.com/apppasswords), not your regular password.
 
-## Raspberry Pi Production Deployment
+## Raspberry Pi deployment
 
-For always-on deployment (e.g., RPi 3B+), use systemd:
+Run these commands from the project directory on the Pi. Run `./install` first on a fresh checkout.
+
+| Command | What it does |
+| --- | --- |
+| `python3 manage.py deploy` | Installs dependencies, installs systemd units, and starts the driver and scheduler at boot. |
+| `python3 manage.py status` | Shows systemd and script processes and whether WhatsApp is connected. |
+| `python3 manage.py start` | Starts the installed services. On a checkout without services, starts the foreground scripts. |
+| `python3 manage.py stop` | Stops the services and any script processes started by the CLI. |
+| `python3 manage.py start --script` | Starts the foreground driver and scheduler after the services have stopped. This uses the same WhatsApp session and queue. |
+| `python3 manage.py update` | Pulls the current branch with a fast-forward and redeploys installed services. |
+
+`./whatsapp-web` opens Flask on demand and works while the systemd scheduler is running.
+The web UI and driver listen on the Pi's loopback interface. To use Flask remotely,
+run the following on your computer and open [the scheduler](http://127.0.0.1:5000) in your browser.
 
 ```bash
-python3 manage.py install-service
+ssh -L 5000:127.0.0.1:5000 iedwards@raspberrypi
+cd ~/development/whatsapp_scheduler_baileys
+./whatsapp-web
 ```
 
-This generates systemd units with auto-detected paths. Then:
+Use `python3 manage.py web --service` to keep Flask running after the SSH session ends.
+The daily systemd timer checks the driver HTTP endpoint and restarts it if it stops responding.
 
-```bash
-sudo cp systemd/*.service systemd/*.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable whatsapp-driver whatsapp-scheduler
-sudo systemctl start whatsapp-driver whatsapp-scheduler
-```
+## Scheduling with Telegram and timezones
 
-The Flask web UI is on-demand:
-```bash
-sudo systemctl start whatsapp-flask   # When you need it
-sudo systemctl stop whatsapp-flask    # When done
-```
+Set `TELEGRAM_CHAT_ID` to your private chat ID. Use **Edit Schedule** or `/edit`,
+choose an active schedule, then choose the field to change. Use `/add` to create a
+schedule and `/cancel` to exit a prompt.
 
-Daily maintenance runs at 4 AM via timer (health checks, memory management).
+Choose an IANA timezone such as `Africa/Johannesburg` in the web form or Telegram.
+Recurring schedules keep their clock time in the chosen timezone. For example,
+08:30 in Johannesburg is 07:30 in Amsterdam in winter and 08:30 in summer.
+Changing only a schedule's timezone in Telegram keeps its clock time and changes
+the instant it will send. Existing schedules without a timezone use the server's
+local time.
+
+YouTube video and channel live links can include a WhatsApp thumbnail. A channel
+live link may show the channel image until YouTube publishes an active stream.
+Messages still send if the preview is unavailable.
 
 ## Schedule Types
 
@@ -212,5 +230,5 @@ python3 manage.py fresh-start
 
 ### Driver won't connect
 - Delete `baileys_auth_info/` and restart to get a fresh QR code
-- Check Node.js version: `node --version` (needs >= 16)
+- Check Node.js version: `node --version` (needs >= 20)
 - Check logs: `cat logs/driver.log`

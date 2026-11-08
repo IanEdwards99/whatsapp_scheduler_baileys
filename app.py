@@ -1,21 +1,43 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
-from scheduler_core import MessageScheduler
-from message_history import MessageHistory
-import requests
-from requests.exceptions import RequestException
-import subprocess
 import os
-import time
-from dotenv import load_dotenv
-load_dotenv()
-
-import os
+import secrets
 import signal
 
+import requests
+from dotenv import load_dotenv
+from filelock import Timeout
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
+
+from message_history import MessageHistory
+from scheduler_core import MessageScheduler, schedule_datetime, schedule_label, schedule_revision
+
+load_dotenv()
 app = Flask(__name__)
-app.secret_key = "your_secret_key_change_in_production"
-scheduler = MessageScheduler("schedules/schedule.json")
-history = MessageHistory()  # Add history tracking
+app.secret_key = secrets.token_bytes(32)
+app.config["TRUSTED_HOSTS"] = ["localhost", "127.0.0.1", "[::1]"]
+app.jinja_env.globals.update(schedule_label=schedule_label, schedule_revision=schedule_revision)
+scheduler = MessageScheduler()
+history = MessageHistory()
+
+
+@app.context_processor
+def form_token():
+    if "csrf" not in session:
+        session["csrf"] = secrets.token_urlsafe(32)
+    return {"csrf_token": session["csrf"]}
+
+
+@app.before_request
+def validate_form_token():
+    if request.method == "POST":
+        token = request.form.get("csrf", "")
+        if not token.isascii() or not secrets.compare_digest(token, session.get("csrf", "-")):
+            abort(400, "Invalid form token. Reload the page and try again.")
+
+
+@app.errorhandler(Timeout)
+def queue_busy(_error):
+    return "The scheduler is sending a message. Try again in a moment.", 503
+
 
 DRIVER_SERVER_URL = os.environ.get("DRIVER_URL", "http://127.0.0.1:5001")
 
@@ -36,122 +58,87 @@ def index():
     schedules = scheduler.load_schedules()
     return render_template("index.html", schedules=schedules, enumerate=enumerate)
 
+def schedule_form_data():
+    schedule_type = request.form.get("type")
+    contact = request.form.get("contact", "").strip()
+    date = request.form.get("datetime", "")
+    if not contact or not date:
+        raise ValueError("Provide a contact and date/time.")
+    data = {
+        "type": schedule_type, "contact": contact, "datetime": date,
+        "recurring": request.form.get("recurring"), "timezone": request.form.get("timezone"),
+    }
+    if schedule_type == "message":
+        message = request.form.get("message", "")
+        if not message.strip():
+            raise ValueError("Provide a message.")
+        data["message"] = message
+    elif schedule_type == "poll":
+        question = request.form.get("question", "").strip()
+        options = [option.strip() for option in request.form.get("options", "").split(",") if option.strip()]
+        if not question or len(options) < 2 or len(set(options)) != len(options):
+            raise ValueError("Provide a question and at least two unique poll options.")
+        data.update(question=question, options=options,
+                    allow_multi_select=request.form.get("allow_multi_select") == "on")
+    else:
+        raise ValueError("Choose a message or poll.")
+    return data
+
+
 @app.route("/add", methods=["GET", "POST"])
 def add_schedule():
     if request.method == "POST":
-        schedule_type = request.form.get("type")
-        contact = request.form.get("contact")
-        datetime_str = request.form.get("datetime")  # New: full datetime
-        recurring = request.form.get("recurring")
-        
-        if schedule_type == "message":
-            message = request.form.get("message")
-            if not contact or not message or not datetime_str:
-                flash("Please provide contact, message, and date/time.", "error")
-                return redirect(url_for("add_schedule"))
-            scheduler.add_message_schedule(contact, message, datetime_str, recurring)
-            flash("Message schedule added successfully!", "success")
-        
-        elif schedule_type == "poll":
-            question = request.form.get("question")
-            options = request.form.get("options").split(",")
-            options = [opt.strip() for opt in options if opt.strip()]
-            allow_multi_select = request.form.get("allow_multi_select") == "on"
-            
-            if not contact or not question or not options or not datetime_str:
-                flash("Please provide contact, question, options, and date/time.", "error")
-                return redirect(url_for("add_schedule"))
-            
-            if len(options) != len(set(options)):
-                flash("Poll options must be unique.", "error")
-                return redirect(url_for("add_schedule"))
-            
-            scheduler.add_poll_schedule(contact, question, options, datetime_str, recurring, allow_multi_select)
-            flash("Poll schedule added successfully!", "success")
-        
+        try:
+            data = schedule_form_data()
+            if data["type"] == "message":
+                scheduler.add_message_schedule(data["contact"], data["message"], data["datetime"],
+                                               data["recurring"], data["timezone"])
+            else:
+                scheduler.add_poll_schedule(data["contact"], data["question"], data["options"],
+                                            data["datetime"], data["recurring"],
+                                            data["allow_multi_select"], data["timezone"])
+        except ValueError as error:
+            flash(str(error), "error")
+            return render_template("add_schedule.html"), 400
+        flash("Schedule added successfully!", "success")
         return redirect(url_for("index"))
-    
     return render_template("add_schedule.html")
 
 
-@app.route("/edit/<int:index>", methods=["GET", "POST"])
-def edit_schedule(index):
+@app.route("/edit/<key>", methods=["GET", "POST"])
+def edit_schedule(key):
     schedules = scheduler.load_schedules()
-    
-    if index < 0 or index >= len(schedules):
-        flash("Invalid schedule index.", "error")
-        return redirect(url_for("index"))
-    
-    schedule = schedules[index]
-    
+    if key.isdecimal() and len(key) < 10 and int(key) < len(schedules):
+        key = schedules[int(key)]["id"]
+    schedule = next((item for item in schedules if item["id"] == key), None)
+    if schedule is None:
+        abort(404)
+
     if request.method == "POST":
-        schedule_type = request.form.get("type")
-        contact = request.form.get("contact")
-        datetime_str = request.form.get("datetime")
-        recurring = request.form.get("recurring")
-        
-        if schedule_type == "message":
-            message = request.form.get("message")
-            if not contact or not message or not datetime_str:
-                flash("Please provide contact, message, and date/time.", "error")
-                return redirect(url_for("edit_schedule", index=index))
-            
-            scheduler.update_schedule(index, {
-                'type': 'message',
-                'contact': contact,
-                'message': message,
-                'datetime': datetime_str,
-                'recurring': recurring
-            })
-            flash("Schedule updated successfully!", "success")
-        
-        elif schedule_type == "poll":
-            question = request.form.get("question")
-            options = request.form.get("options").split(",")
-            options = [opt.strip() for opt in options if opt.strip()]
-            allow_multi_select = request.form.get("allow_multi_select") == "on"
-            
-            if not contact or not question or not options or not datetime_str:
-                flash("Please provide contact, question, options, and date/time.", "error")
-                return redirect(url_for("edit_schedule", index=index))
-            
-            if len(options) != len(set(options)):
-                flash("Poll options must be unique.", "error")
-                return redirect(url_for("edit_schedule", index=index))
-            
-            scheduler.update_schedule(index, {
-                'type': 'poll',
-                'contact': contact,
-                'question': question,
-                'options': options,
-                'datetime': datetime_str,
-                'recurring': recurring,
-                'allow_multi_select': allow_multi_select
-            })
-            flash("Schedule updated successfully!", "success")
-        
+        try:
+            data = schedule_form_data()
+            updated = scheduler.update_schedule(key, data, expected=request.form.get("revision", ""))
+            if updated is None:
+                flash("The schedule changed. Review the latest values and try again.", "error")
+                return redirect(url_for("edit_schedule", key=key))
+        except ValueError as error:
+            flash(str(error), "error")
+            return redirect(url_for("edit_schedule", key=key))
+        flash("Schedule updated successfully!", "success")
         return redirect(url_for("index"))
-    
-    # GET request - show edit form with pre-filled data
-    # Convert next_run to datetime-local format for the input
-    next_run = schedule.get('next_run', '')
-    if 'T' in str(next_run):
-        datetime_value = next_run[:16]  # YYYY-MM-DDTHH:MM
-    else:
-        # If only time, use today's date
-        from datetime import datetime as dt
-        datetime_value = dt.now().strftime("%Y-%m-%d") + "T" + schedule.get('time', '00:00')
-    
-    return render_template("edit_schedule.html", schedule=schedule, index=index, datetime_value=datetime_value)
+
+    try:
+        date = schedule_datetime(schedule).strftime("%Y-%m-%dT%H:%M")
+    except (KeyError, TypeError, ValueError):
+        date = ""
+    return render_template("edit_schedule.html", schedule=schedule, datetime_value=date)
 
 
-@app.route("/delete/<int:index>")
-def delete_schedule(index):
-    removed = scheduler.remove_schedule(index)
-    if removed:
-        flash("Schedule deleted successfully!", "success")
-    else:
-        flash("Invalid schedule index.", "error")
+@app.post("/delete/<key>")
+def delete_schedule(key):
+    removed = scheduler.remove_schedule(key, expected=request.form.get("revision", ""))
+    flash("Schedule deleted successfully!" if removed else "The schedule changed. Review it and try again.",
+          "success" if removed else "error")
     return redirect(url_for("index"))
 
 
@@ -190,7 +177,7 @@ def send_now():
             
             elif schedule_type == "poll":
                 question = request.form.get("question")
-                options = request.form.get("options").split(",")
+                options = request.form.get("options", "").split(",")
                 options = [opt.strip() for opt in options if opt.strip()]
                 allow_multi_select = request.form.get("allow_multi_select") == "on"
                 
@@ -260,9 +247,7 @@ def api_status():
         "driver": "ok" if driver_ok else "down"
     })
 
-import os
-
 if __name__ == "__main__":
     # Use debug mode only in development (set FLASK_DEBUG=1 to enable)
     debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
-    app.run(host="0.0.0.0", port=5000, debug=debug_mode)
+    app.run(host="127.0.0.1", port=5000, debug=debug_mode)

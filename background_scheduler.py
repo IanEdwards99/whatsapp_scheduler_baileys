@@ -33,9 +33,12 @@ import logging
 import threading
 import subprocess
 import os
+import signal
+
+from filelock import FileLock, Timeout
 from datetime import datetime
 from dotenv import load_dotenv
-from scheduler_core import MessageScheduler
+from scheduler_core import MessageScheduler, SCHEDULE_FILE
 from message_history import MessageHistory
 from email_notifications import get_notifier
 
@@ -49,7 +52,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-SCHEDULE_FILE = "schedules/schedule.json"
 DRIVER_SERVER_URL = os.environ.get("DRIVER_URL", "http://127.0.0.1:5001")
 CHECK_INTERVAL = 30  # Check every 30 seconds for pending schedules (reduced for Pi)
 MAX_CONSECUTIVE_FAILURES = 20  # Restart driver after ~10 minutes of failures
@@ -69,7 +71,7 @@ class EnhancedScheduleProcessor:
     6. Calculate next run time for recurring schedules
     """
     
-    def __init__(self, schedule_file: str, driver_url: str):
+    def __init__(self, schedule_file: str, driver_url: str, stop_event=None):
         """
         Initialize processor with schedule file and driver URL
         
@@ -78,6 +80,7 @@ class EnhancedScheduleProcessor:
             driver_url: Base URL for driver API (e.g., http://127.0.0.1:5001)
         """
         self.scheduler = MessageScheduler(schedule_file)
+        self.stop_event = stop_event or threading.Event()
         self.driver_url = driver_url
         self.history = MessageHistory()  # Message history tracker
         self.consecutive_failures = 0  # Track failures for auto-restart
@@ -98,6 +101,9 @@ class EnhancedScheduleProcessor:
             logger.warning(f"Driver restart cooldown active ({remaining}s remaining)")
             return False
         
+        if os.environ.get("WHATSAPP_SYSTEMD") != "1":
+            return False
+
         logger.warning("⚠️ Attempting to restart whatsapp-driver service...")
         
         # Send email notification about restart
@@ -108,7 +114,7 @@ class EnhancedScheduleProcessor:
         try:
             # Use systemctl to restart the driver
             result = subprocess.run(
-                ['sudo', 'systemctl', 'restart', 'whatsapp-driver'],
+                ['sudo', '-n', '/usr/bin/systemctl', 'restart', 'whatsapp-driver'],
                 capture_output=True,
                 text=True,
                 timeout=30
@@ -121,7 +127,7 @@ class EnhancedScheduleProcessor:
                 
                 # Wait for driver to come back up
                 logger.info("Waiting 60 seconds for driver to initialize...")
-                time.sleep(60)
+                self.stop_event.wait(60)
                 return True
             else:
                 logger.error(f"✗ Failed to restart driver: {result.stderr}")
@@ -210,24 +216,17 @@ class EnhancedScheduleProcessor:
         
         logger.info(f"Processing {len(pending)} pending schedule(s)")
         
-        for idx, schedule in pending:
+        for _, schedule in pending:
+            if self.stop_event.is_set():
+                return
             try:
-                # Send the schedule and get success status
-                success = self._send_schedule(schedule)
-                
-                # Update schedule status (also handles recurring logic)
-                self.scheduler.mark_completed(idx, success)
-                
-                if success:
-                    logger.info(f"✓ Completed: {schedule['contact']} ({schedule['type']})")
-                else:
-                    logger.error(f"✗ Failed: {schedule['contact']} ({schedule['type']})")
-                
-            except Exception as e:
-                logger.error(f"Error processing schedule: {e}", exc_info=True)
-                # Mark as failed so we don't retry immediately
-                self.scheduler.mark_completed(idx, False)
-    
+                success = self.scheduler.process_due(schedule, self._send_schedule)
+                if success is not None:
+                    logger.log(logging.INFO if success else logging.ERROR,
+                               "Schedule %s: %s", schedule["id"], "sent" if success else "failed")
+            except Timeout:
+                logger.warning("Schedule queue is busy. Will check again on the next cycle.")
+
     def _send_schedule(self, schedule: dict) -> bool:
         """
         Send a single schedule via driver API and log to history
@@ -357,9 +356,12 @@ class EnhancedScheduleProcessor:
         logger.info("=" * 60)
         
         try:
-            while True:
-                self.process_schedules()
-                time.sleep(CHECK_INTERVAL)
+            while not self.stop_event.is_set():
+                try:
+                    self.process_schedules()
+                except Timeout:
+                    logger.warning("Schedule queue is busy. Will check again on the next cycle.")
+                self.stop_event.wait(CHECK_INTERVAL)
         
         except KeyboardInterrupt:
             logger.info("\nScheduler stopped by user (Ctrl+C)")
@@ -369,16 +371,19 @@ class EnhancedScheduleProcessor:
 
 
 if __name__ == "__main__":
-    # Start Telegram bot in background thread if available
+    stop_event = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
+    processor = EnhancedScheduleProcessor(SCHEDULE_FILE, DRIVER_SERVER_URL, stop_event)
     try:
-        from telegram_bot import run_bot
-        telegram_thread = threading.Thread(target=run_bot, daemon=True)
-        telegram_thread.start()
-        logger.info("Started Telegram bot in background thread")
-    except Exception as e:
-        logger.error(f"Failed to start telegram bot: {e}")
-
-    # Create processor and start main loop
-    processor = EnhancedScheduleProcessor(SCHEDULE_FILE, DRIVER_SERVER_URL)
-    processor.run()
-
+        with FileLock(f"{SCHEDULE_FILE}.worker.lock", timeout=0):
+            if os.environ.get("TELEGRAM_TOKEN") and os.environ.get("WHATSAPP_DISABLE_TELEGRAM") != "1":
+                try:
+                    from telegram_bot import run_bot
+                    threading.Thread(target=run_bot, daemon=True).start()
+                    logger.info("Started Telegram bot in background thread")
+                except Exception as e:
+                    logger.error("Failed to start Telegram bot: %s", e)
+            processor.run()
+    except Timeout:
+        logger.error("Another scheduler is already processing this queue.")
+        raise SystemExit(1)

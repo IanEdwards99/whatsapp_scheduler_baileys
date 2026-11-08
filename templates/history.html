@@ -110,6 +110,7 @@
                 <a href="/history" class="nav-link active">History</a>
             
                 <form action="/shutdown" method="post" style="display: inline; float: right;">
+                    <input type="hidden" name="csrf" value="{{ csrf_token }}">
                     <button type="submit" class="nav-link" style="background: none; border: none; cursor: pointer; color: #dc3545; font-weight: bold; margin-left: 15px;" onclick="return confirm("Are you sure you want to completely shut down the server?");">🛑 Shutdown</button>
                 </form>
             </nav>

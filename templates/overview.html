@@ -48,6 +48,7 @@
                 <a href="/history" class="nav-link">History</a>
             
                 <form action="/shutdown" method="post" style="display: inline; float: right;">
+                    <input type="hidden" name="csrf" value="{{ csrf_token }}">
                     <button type="submit" class="nav-link" style="background: none; border: none; cursor: pointer; color: #dc3545; font-weight: bold; margin-left: 15px;" onclick="return confirm("Are you sure you want to completely shut down the server?");">🛑 Shutdown</button>
                 </form>
             </nav>
@@ -74,12 +75,7 @@
                                 </h3>
                                 <p><strong>Type:</strong> {{ schedule.type|capitalize }}</p>
                                 <p><strong>Next Run:</strong> ⏰ 
-                                    {% set next_run = schedule.get('next_run', schedule.time) %}
-                                    {% if 'T' in next_run %}
-                                        {{ next_run[:10] }} at {{ next_run[11:16] }}
-                                    {% else %}
-                                        {{ next_run }}
-                                    {% endif %}
+                                    {{ schedule_label(schedule) }}
                                 </p>
                                 <p><strong>Repeat:</strong> {{ schedule.recurring or 'Once' }}</p>
                                 
