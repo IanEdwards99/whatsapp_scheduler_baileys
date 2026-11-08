@@ -9,11 +9,10 @@
     "dev": "node server.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "body-parser": "^2.2.2",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "nodemailer": "^7.0.11",
     "pino": "^10.3.1",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0"
