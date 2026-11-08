@@ -78,13 +78,15 @@
                                     <td>
                                         {% if schedule.type == 'message' %}
                                             💬 Message
+                                        {% elif schedule.type == 'status' %}
+                                            📣 Status
                                         {% else %}
                                             📊 Poll
                                         {% endif %}
                                     </td>
                                     <td><strong>{{ schedule.contact }}</strong></td>
                                     <td>
-                                        {% if schedule.type == 'message' %}
+                                        {% if schedule.type in ('message', 'status') %}
                                             <small>{{ schedule.message|truncate(50, True, '...') }}</small>
                                         {% else %}
                                             <small><strong>Q:</strong> {{ schedule.question|truncate(40, True, '...') }}</small><br>

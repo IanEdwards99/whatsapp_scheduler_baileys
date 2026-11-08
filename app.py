@@ -62,8 +62,8 @@ def schedule_form_data():
     schedule_type = request.form.get("type")
     contact = request.form.get("contact", "").strip()
     date = request.form.get("datetime", "")
-    if not contact or not date:
-        raise ValueError("Provide a contact and date/time.")
+    if not date or (schedule_type != "status" and not contact):
+        raise ValueError("Provide a date/time and, for chat messages or polls, a contact.")
     data = {
         "type": schedule_type, "contact": contact, "datetime": date,
         "recurring": request.form.get("recurring"), "timezone": request.form.get("timezone"),
@@ -73,6 +73,8 @@ def schedule_form_data():
         if not message.strip():
             raise ValueError("Provide a message.")
         data["message"] = message
+    elif schedule_type == "status":
+        data.update(message=request.form.get("status_url", ""), audience=request.form.get("audience", ""))
     elif schedule_type == "poll":
         question = request.form.get("question", "").strip()
         options = [option.strip() for option in request.form.get("options", "").split(",") if option.strip()]
@@ -81,7 +83,7 @@ def schedule_form_data():
         data.update(question=question, options=options,
                     allow_multi_select=request.form.get("allow_multi_select") == "on")
     else:
-        raise ValueError("Choose a message or poll.")
+        raise ValueError("Choose a message, poll, or WhatsApp Status.")
     return data
 
 
@@ -90,13 +92,14 @@ def add_schedule():
     if request.method == "POST":
         try:
             data = schedule_form_data()
+            timing = (data["datetime"], data["recurring"])
             if data["type"] == "message":
-                scheduler.add_message_schedule(data["contact"], data["message"], data["datetime"],
-                                               data["recurring"], data["timezone"])
+                scheduler.add_message_schedule(data["contact"], data["message"], *timing, timezone=data["timezone"])
+            elif data["type"] == "status":
+                scheduler.add_status_schedule(data["message"], data["audience"], *timing, timezone=data["timezone"])
             else:
-                scheduler.add_poll_schedule(data["contact"], data["question"], data["options"],
-                                            data["datetime"], data["recurring"],
-                                            data["allow_multi_select"], data["timezone"])
+                scheduler.add_poll_schedule(data["contact"], data["question"], data["options"], *timing,
+                                            allow_multi_select=data["allow_multi_select"], timezone=data["timezone"])
         except ValueError as error:
             flash(str(error), "error")
             return render_template("add_schedule.html"), 400

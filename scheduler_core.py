@@ -1,12 +1,14 @@
 import json
 import logging
 import os
+import re
 import tempfile
 from calendar import monthrange
 from datetime import datetime, time, timedelta, timezone as utc_timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import List
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -18,6 +20,52 @@ logger = logging.getLogger(__name__)
 
 SCHEDULE_FILE = Path(__file__).resolve().parent / "schedules" / "schedule.json"
 RECURRENCES = ("daily", "weekly", "monthly")
+STATUS_CONTACT = "WhatsApp Status"
+YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
+
+
+def status_link(value):
+    link = value.strip() if isinstance(value, str) else ""
+    error = ValueError("Enter one HTTPS link to a YouTube video or channel livestream.")
+    if not link or re.search(r'[\s<>"\x00-\x1f]', link):
+        raise error
+    try:
+        url = urlsplit(link)
+    except ValueError:
+        raise error from None
+    if url.scheme != "https" or url.netloc.lower() not in YOUTUBE_HOSTS:
+        raise error
+    parts = url.path.strip("/").split("/")
+    video = ""
+    if url.hostname == "youtu.be":
+        video = parts[0]
+    elif parts[0] == "watch":
+        video = parse_qs(url.query, keep_blank_values=True).get("v", [""])[0]
+    elif parts[0] in ("live", "shorts", "embed") and len(parts) > 1:
+        video = parts[1]
+    elif re.fullmatch(r"/(?:@[^/]+|(?:channel|c|user)/[^/]+)/live/?", url.path):
+        return link
+    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video):
+        raise error
+    return link
+
+
+def status_audience(value):
+    entries = re.split(r"[,\n]", value) if isinstance(value, str) else value
+    if not isinstance(entries, list) or any(not isinstance(entry, str) for entry in entries):
+        raise ValueError("Enter international phone numbers beginning with + and a country code.")
+    numbers = []
+    for entry in entries:
+        if not entry.strip():
+            continue
+        number = re.sub(r"[ ().-]", "", entry.strip())
+        if not re.fullmatch(r"\+[1-9][0-9]{6,14}", number):
+            raise ValueError("Enter international phone numbers beginning with + and a country code.")
+        numbers.append(number)
+    numbers = list(dict.fromkeys(numbers))
+    if not 1 <= len(numbers) <= 50:
+        raise ValueError("Choose between 1 and 50 Status viewers.")
+    return numbers
 
 
 def schedule_revision(schedule):
@@ -169,6 +217,10 @@ class MessageScheduler:
         return self._add({"type": "message", "contact": contact, "message": message},
                          schedule_datetime, recurring, timezone)
 
+    def add_status_schedule(self, link, audience, schedule_datetime, recurring=None, timezone=None):
+        return self._add({"type": "status", "contact": STATUS_CONTACT, "message": status_link(link),
+                          "audience": status_audience(audience)}, schedule_datetime, recurring, timezone)
+
     def add_poll_schedule(self, contact, question, options, schedule_datetime, recurring=None,
                           allow_multi_select=False, timezone=None):
         return self._add({
@@ -212,9 +264,14 @@ class MessageScheduler:
                 schedule.update(timing)
 
             schedule.update({field: data[field] for field in
-                             ("type", "contact", "message", "question", "options", "allow_multi_select")
+                             ("type", "contact", "message", "question", "options", "allow_multi_select", "audience")
                              if field in data})
-            if schedule["type"] == "message":
+            if schedule["type"] == "status":
+                schedule.update(contact=STATUS_CONTACT, message=status_link(schedule.get("message")),
+                                audience=status_audience(schedule.get("audience")))
+            else:
+                schedule.pop("audience", None)
+            if schedule["type"] in ("message", "status"):
                 for field in ("question", "options", "allow_multi_select"):
                     schedule.pop(field, None)
             else:
@@ -318,6 +375,20 @@ class MessageScheduler:
         except Exception as e:
             logger.error(f"✗ Error: {e}")
             return False, str(e)
+
+    def post_status_via_api(self, link, audience):
+        """Post a link to Status through the driver, with the chosen viewer list."""
+        try:
+            response = requests.post(
+                f"{self.driver_server_url}/post_status",
+                json={"link": status_link(link), "audience": status_audience(audience)},
+                timeout=(3, 60),
+            )
+            if response.status_code == 200:
+                return True, None
+            return False, self._parse_error_response(response, STATUS_CONTACT)
+        except (ValueError, requests.RequestException) as error:
+            return False, str(error)
     
     def send_poll_via_api(self, contact: str, question: str, options: List[str], allow_multi_select: bool = False):
         """Send poll via driver API. Returns (True, None) on success or (False, error_detail) on failure."""

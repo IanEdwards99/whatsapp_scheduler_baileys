@@ -7,7 +7,7 @@ from filelock import Timeout
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telebot_calendar import Calendar, CallbackData, ENGLISH_LANGUAGE
 
-from scheduler_core import MessageScheduler, schedule_label, schedule_revision, schedule_zone
+from scheduler_core import MessageScheduler, schedule_label, schedule_revision, schedule_zone, status_audience, status_link
 
 load_dotenv()
 TOKEN = os.environ["TELEGRAM_TOKEN"]
@@ -24,6 +24,7 @@ state = {}
 MENU = {
     "📝 List Schedules": "/list",
     "➕ Add Schedule": "/add",
+    "📣 Schedule Status": "/addstatus",
     "✏️ Edit Schedule": "/edit",
     "🗑 Delete Schedule": "/delete",
     "❓ Help": "/help",
@@ -31,9 +32,13 @@ MENU = {
 DATE_PROMPT = "Enter the date and time as YYYY-MM-DD HH:MM, or choose a date below."
 ZONE_PROMPT = "Enter a timezone such as Africa/Johannesburg or Europe/Amsterdam, or type local for server time."
 REPEAT_PROMPT = "Enter daily, weekly, monthly, or none."
+STATUS_LINK_PROMPT = "Paste the YouTube video or livestream link to share on WhatsApp Status."
+STATUS_AUDIENCE_PROMPT = "Enter 1–50 Status viewers as international phone numbers starting with +, separated by commas."
 FIELDS = {
     "contact": ("contact", "Enter the contact or WhatsApp group."),
     "message": ("message", "Enter the new message."),
+    "link": ("message", STATUS_LINK_PROMPT),
+    "viewers": ("audience", STATUS_AUDIENCE_PROMPT),
     "question": ("question", "Enter the new poll question."),
     "options": ("options", "Enter at least two unique options, separated by commas."),
     "multi": ("allow_multi_select", "Allow multiple answers? Enter yes or no."),
@@ -83,12 +88,15 @@ def begin(command):
     elif command == "/add":
         state["step"] = "contact"
         reply("Enter the contact or WhatsApp group.")
+    elif command == "/addstatus":
+        state["step"] = "status_link"
+        reply(STATUS_LINK_PROMPT)
     elif command == "/cancel":
         reply("Cancelled.")
     else:
         markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
         markup.add(*MENU)
-        reply("Manage your WhatsApp schedules using the menu or /list, /add, /edit, /delete.", reply_markup=markup)
+        reply("Use the menu or /list, /add, /addstatus, /edit, /delete to manage WhatsApp schedules.", reply_markup=markup)
 
 
 def timezone_input(text):
@@ -146,6 +154,12 @@ def handle_step(text):
     elif step == "message":
         state.update(step="zone", message=text)
         reply(ZONE_PROMPT)
+    elif step == "status_link":
+        state.update(step="status_audience", link=status_link(text))
+        reply(STATUS_AUDIENCE_PROMPT)
+    elif step == "status_audience":
+        state.update(step="zone", audience=status_audience(text))
+        reply(ZONE_PROMPT)
     elif step == "zone":
         state["timezone"] = timezone_input(text)
         ask_date()
@@ -153,10 +167,12 @@ def handle_step(text):
         ask_repeat(datetime_input(text))
     elif step == "repeat":
         recurring = edit_value("recurring", text)
+        timing = (state["datetime"], recurring, state["timezone"])
         try:
-            added = scheduler.add_message_schedule(
-                state["contact"], state["message"], state["datetime"], recurring, state["timezone"]
-            )
+            if "audience" in state:
+                added = scheduler.add_status_schedule(state["link"], state["audience"], *timing)
+            else:
+                added = scheduler.add_message_schedule(state["contact"], state["message"], *timing)
         except ValueError as error:
             if "clock change" in str(error):
                 reply(str(error))
@@ -164,7 +180,8 @@ def handle_step(text):
                 return
             raise
         state.clear()
-        reply(f"Schedule added for {added['contact']} at {schedule_label(added)}.")
+        viewers = f" Viewers selected: {len(added['audience'])}." if added["type"] == "status" else ""
+        reply(f"Schedule added for {added['contact']} at {schedule_label(added)}.{viewers}")
     elif step in ("edit", "delete"):
         try:
             selected = state["schedules"][int(text)]
@@ -175,8 +192,12 @@ def handle_step(text):
             state.clear()
             reply("Schedule deleted." if removed else "Schedule changed. Use /delete to reload the list.")
         else:
-            fields = ["contact", "time", "timezone", "repeat"]
-            fields += ["question", "options", "multi"] if selected["type"] == "poll" else ["message"]
+            content_fields = {
+                "message": ["contact", "message"],
+                "poll": ["contact", "question", "options", "multi"],
+                "status": ["link", "viewers"],
+            }
+            fields = ["time", "timezone", "repeat"] + content_fields[selected["type"]]
             state.update(step="field", selected=selected, fields=fields)
             reply(f"{schedule_label(selected)}\nWhich field should change? {', '.join(fields)}")
     elif step == "field":

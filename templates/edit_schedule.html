@@ -54,12 +54,17 @@
                                     {{ 'checked' if schedule.type == 'poll' else '' }} onchange="toggleContent()">
                                 <span class="radio-button">📊 Poll</span>
                             </label>
+                            <label class="radio-label">
+                                <input type="radio" name="type" value="status" id="type-status"
+                                    {{ 'checked' if schedule.type == 'status' else '' }} onchange="toggleContent()">
+                                <span class="radio-button">📣 WhatsApp Status</span>
+                            </label>
                         </div>
                     </div>
 
-                    <div class="form-group">
+                    <div class="form-group" id="contact-content">
                         <label for="contact">Contact Name or Phone Number</label>
-                        <input type="text" name="contact" id="contact" value="{{ schedule.contact }}" required>
+                        <input type="text" name="contact" id="contact" value="{{ schedule.contact if schedule.type != 'status' else '' }}" required>
                     </div>
 
                     <div id="message-content" style="{{ 'display:block;' if schedule.type == 'message' else 'display:none;' }}">
@@ -87,6 +92,18 @@
                                 <span>Allow multiple selections</span>
                             </label>
                             <small>If checked, users can select more than one option</small>
+                        </div>
+                    </div>
+
+                    <div id="status-content" style="display:none;">
+                        <div class="form-group">
+                            <label for="status_url">YouTube livestream or video link</label>
+                            <input type="url" name="status_url" id="status_url" value="{{ schedule.message if schedule.type == 'status' else '' }}">
+                        </div>
+                        <div class="form-group">
+                            <label for="audience">Status viewers</label>
+                            <textarea name="audience" id="audience" rows="2">{{ schedule.audience|join(', ') if schedule.type == 'status' else '' }}</textarea>
+                            <small>Choose 1–50 people. Enter international numbers starting with +, separated by commas or new lines.</small>
                         </div>
                     </div>
 
@@ -129,19 +146,21 @@
 
     <script>
         function toggleContent() {
-            const type = document.querySelector('input[name="type"]:checked').value;
-            const messageContent = document.getElementById('message-content');
-            const pollContent = document.getElementById('poll-content');
-            
-            if (type === 'message') {
-                messageContent.style.display = 'block';
-                pollContent.style.display = 'none';
-            } else {
-                messageContent.style.display = 'none';
-                pollContent.style.display = 'block';
+            const type = document.querySelector('input[name="type"]:checked')?.value || 'message';
+            for (const kind of ['message', 'poll', 'status']) {
+                document.getElementById(kind + '-content').style.display = kind === type ? 'block' : 'none';
+            }
+            const isStatus = type === 'status';
+            document.getElementById('contact-content').style.display = isStatus ? 'none' : 'block';
+            document.getElementById('contact').required = !isStatus;
+            for (const id of ['status_url', 'audience']) {
+                const field = document.getElementById(id);
+                field.disabled = !isStatus;
+                field.required = isStatus;
             }
         }
-        
+        document.addEventListener('DOMContentLoaded', toggleContent);
+
         function toggleRecurringOptions() {
             const recurring = document.getElementById('recurring').value;
             const hint = document.getElementById('recurring-hint');

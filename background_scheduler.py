@@ -231,7 +231,7 @@ class EnhancedScheduleProcessor:
         """
         Send a single schedule via driver API and log to history
         
-        Handles both message and poll types with appropriate API calls.
+        Handles messages, polls and Status posts with the appropriate API calls.
         Logs detailed metadata including scheduled time, recurring type, etc.
         
         Args:
@@ -244,25 +244,25 @@ class EnhancedScheduleProcessor:
         contact = schedule.get('contact')
         
         try:
-            # Handle MESSAGE type
-            if sched_type == 'message':
+            if sched_type in ('message', 'status'):
                 message = schedule.get('message')
-                logger.info(f"Sending message to {contact}: {message[:50]}...")
-                
-                # Send via driver API
-                success, error_detail = self.scheduler.send_message_via_api(contact, message)
+                if sched_type == 'status':
+                    success, error_detail = self.scheduler.post_status_via_api(message, schedule.get('audience'))
+                else:
+                    logger.info(f"Sending message to {contact}: {message[:50]}...")
+                    success, error_detail = self.scheduler.send_message_via_api(contact, message)
                 
                 # Send email alert on failure
                 if not success:
                     get_notifier().send_failure_alert(
                         contact=contact,
-                        content_type='message',
-                        error=f"Failed to send message: {error_detail or message[:100]}"
+                        content_type=sched_type,
+                        error=f"Failed to send {sched_type}: {error_detail or message[:100]}"
                     )
                 
                 # Log to message history with metadata
                 self.history.add_entry(
-                    entry_type='message',
+                    entry_type=sched_type,
                     contact=contact,
                     content={'message': message},
                     status='sent' if success else 'failed',

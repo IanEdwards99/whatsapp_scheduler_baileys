@@ -65,6 +65,8 @@
                                 <h3>
                                     {% if schedule.type == 'message' %}
                                         💬
+                                    {% elif schedule.type == 'status' %}
+                                        📣
                                     {% else %}
                                         📊
                                     {% endif %}
@@ -91,11 +93,14 @@
                                     </div>
                                 {% endif %}
                                 
-                                {% if schedule.type == 'message' %}
+                                {% if schedule.type in ('message', 'status') %}
                                     <p style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee;">
-                                        <strong>Message:</strong><br>
+                                        <strong>{{ 'YouTube link' if schedule.type == 'status' else 'Message' }}:</strong><br>
                                         <small style="white-space: pre-wrap;">{{ schedule.message }}</small>
                                     </p>
+                                    {% if schedule.type == 'status' %}
+                                        <p><strong>Selected viewers:</strong> {{ schedule.audience|length }}</p>
+                                    {% endif %}
                                 {% else %}
                                     <p style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee;">
                                         <strong>Question:</strong><br>

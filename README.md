@@ -181,6 +181,18 @@ YouTube video and channel live links can include a WhatsApp thumbnail. A channel
 live link may show the channel image until YouTube publishes an active stream.
 Messages still send if the preview is unavailable.
 
+## Scheduling a WhatsApp Status
+
+Choose **WhatsApp Status** in the web form or use **Schedule Status** (`/addstatus`)
+in Telegram. Paste one YouTube video or channel livestream link and enter 1–50
+viewers using international phone numbers that start with `+`. Then choose a
+date, time, timezone, and repeat setting. Edit the link or viewers later with
+`/edit` or the web form.
+
+The selected viewers are used for that post. The scheduler leaves your phone's
+Status privacy settings alone. WhatsApp's acknowledgement confirms that it
+accepted the post. Visibility still depends on the viewer's WhatsApp account.
+
 ## Schedule Types
 
 ### Messages

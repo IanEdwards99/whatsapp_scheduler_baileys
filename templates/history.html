@@ -168,7 +168,7 @@
                                     </td>
                                     <td>{{ entry.contact }}</td>
                                     <td class="content-preview">
-                                        {% if entry.type == 'message' %}
+                                        {% if entry.type in ('message', 'status') %}
                                             {{ entry.content.get('message', 'N/A')|truncate(50, True, '...') }}
                                         {% elif entry.type == 'poll' %}
                                             <strong>Q:</strong> {{ entry.content.get('question', 'N/A')|truncate(30, True, '...') }}<br>

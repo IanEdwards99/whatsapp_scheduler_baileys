@@ -16,31 +16,38 @@ function allowedUrl(value, hosts) {
     return url;
 }
 
+function youtubePage(value) {
+    let source;
+    try {
+        source = new URL(/^www\./i.test(value) ? 'https://' + value : value);
+    } catch {
+        return null;
+    }
+    if (!['https:', 'http:'].includes(source.protocol) || !YOUTUBE_HOSTS.has(source.hostname) ||
+        source.port || source.username || source.password) {
+        return null;
+    }
+    const parts = source.pathname.split('/').filter(Boolean);
+    const video = source.hostname === 'youtu.be' ? parts[0] :
+        parts[0] === 'watch' ? source.searchParams.get('v') :
+        ['live', 'shorts', 'embed'].includes(parts[0]) ? parts[1] : '';
+    if (video && VIDEO_ID.test(video)) {
+        return 'https://www.youtube.com/watch?v=' + video;
+    }
+    if (source.hostname !== 'youtu.be' &&
+        (/^\/@[^/]+\/live\/?$/.test(source.pathname) ||
+         /^\/(?:channel|c|user)\/[^/]+\/live\/?$/.test(source.pathname))) {
+        return 'https://www.youtube.com' + source.pathname;
+    }
+    return null;
+}
+
 function findYouTubeLink(text) {
     const urls = text.match(/(?:https?:\/\/|www\.)[^\s<>"']+/gi) || [];
     for (const raw of urls) {
         const matched = raw.replace(/[.,!?:;)\]}]+$/, '');
-        let source;
-        try {
-            source = new URL(/^www\./i.test(matched) ? 'https://' + matched : matched);
-        } catch {
-            continue;
-        }
-        if (!YOUTUBE_HOSTS.has(source.hostname) || source.port || source.username || source.password) {
-            continue;
-        }
-        const parts = source.pathname.split('/').filter(Boolean);
-        const video = source.hostname === 'youtu.be' ? parts[0] :
-            parts[0] === 'watch' ? source.searchParams.get('v') :
-            ['live', 'shorts', 'embed'].includes(parts[0]) ? parts[1] : '';
-        if (video && VIDEO_ID.test(video)) {
-            return { matched, page: 'https://www.youtube.com/watch?v=' + video };
-        }
-        if (source.hostname !== 'youtu.be' &&
-            (/^\/@[^/]+\/live\/?$/.test(source.pathname) ||
-             /^\/(?:channel|c|user)\/[^/]+\/live\/?$/.test(source.pathname))) {
-            return { matched, page: 'https://www.youtube.com' + source.pathname };
-        }
+        const page = youtubePage(matched);
+        if (page) return { matched, page };
     }
 }
 
@@ -132,4 +139,4 @@ async function youtubePreview(text, upload) {
     return preview;
 }
 
-module.exports = { youtubePreview };
+module.exports = { youtubePage, youtubePreview };

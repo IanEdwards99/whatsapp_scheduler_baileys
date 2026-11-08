@@ -3,6 +3,8 @@ require('dotenv').config();
 const {
     default: makeWASocket,
     DisconnectReason,
+    generateMessageIDV2,
+    jidNormalizedUser,
     useMultiFileAuthState,
     fetchLatestBaileysVersion
 } = require('@whiskeysockets/baileys');
@@ -13,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
 const qrcodeTerminal = require('qrcode-terminal');
-const { youtubePreview } = require('./youtube_preview');
+const { youtubePage, youtubePreview } = require('./youtube_preview');
 
 const app = express();
 app.use(bodyParser.json());
@@ -111,6 +113,16 @@ function formatContactId(contact) {
     return numeric + '@s.whatsapp.net';
 }
 
+async function textContent(client, text) {
+    let linkPreview = null;
+    try {
+        linkPreview = await youtubePreview(text, client.waUploadToServer);
+    } catch (error) {
+        console.warn('YouTube preview unavailable:', error.name);
+    }
+    return { text, linkPreview };
+}
+
 // HTTP API endpoints
 
 app.post('/send_message', async (req, res) => {
@@ -127,17 +139,63 @@ app.post('/send_message', async (req, res) => {
         
         console.log(`Sending message to ${jid}`);
         const client = sock;
-        let linkPreview = null;
-        try {
-            linkPreview = await youtubePreview(message, client.waUploadToServer);
-        } catch (error) {
-            console.warn('YouTube preview unavailable:', error.name);
-        }
-        await client.sendMessage(jid, { text: message, linkPreview });
+        await client.sendMessage(jid, await textContent(client, message));
         res.json({ success: true, chatId: jid });
     } catch (e) {
         console.error(e);
         res.status(500).json({ success: false, error: String(e), chatId: jid });
+    }
+});
+
+app.post('/post_status', async (req, res) => {
+    const { link, audience } = req.body || {};
+    if (typeof link !== 'string' || !link.startsWith('https://') ||
+        /[\s<>"\x00-\x1f]/.test(link) || !youtubePage(link)) {
+        return res.status(400).json({ success: false, message: 'Enter one HTTPS YouTube video or livestream link.' });
+    }
+    if (!Array.isArray(audience) || audience.length < 1 || audience.length > 50 ||
+        audience.some(number => typeof number !== 'string' || !/^\+[1-9][0-9]{6,14}$/.test(number))) {
+        return res.status(400).json({ success: false, message: 'Choose 1–50 viewers using international numbers.' });
+    }
+    const client = sock;
+    if (!client || !isConnected) {
+        return res.status(503).json({ success: false, message: 'Driver not ready' });
+    }
+
+    try {
+        const recipients = [...new Set(audience.map(number => number.slice(1) + '@s.whatsapp.net'))];
+        const contacts = await client.onWhatsApp(...recipients);
+        const registered = new Set((contacts || []).filter(item => item.exists)
+            .map(item => jidNormalizedUser(item.jid)));
+        if (recipients.some(jid => !registered.has(jid))) {
+            return res.status(422).json({ success: false, message: 'Check the viewer list. WhatsApp could not confirm every number.' });
+        }
+
+        const self = jidNormalizedUser(client.user.id);
+        const content = await textContent(client, link);
+        const messageId = generateMessageIDV2(client.user.id);
+        const [ack] = await Promise.all([
+            client.waitForMessage(messageId, 30000),
+            client.sendMessage('status@broadcast', content, {
+                messageId,
+                statusJidList: [...new Set([...recipients, self])],
+                broadcast: true,
+                backgroundColor: '#17324D'
+            })
+        ]);
+        if (ack?.tag !== 'ack' || ack.attrs?.error) {
+            return res.status(502).json({
+                success: false,
+                message: 'WhatsApp did not confirm the Status post. Check Status before trying again.'
+            });
+        }
+        return res.json({ success: true });
+    } catch (error) {
+        console.error('WhatsApp Status post failed:', error.name);
+        return res.status(502).json({
+            success: false,
+            message: 'WhatsApp could not confirm the Status post. Check Status before trying again.'
+        });
     }
 });
 
