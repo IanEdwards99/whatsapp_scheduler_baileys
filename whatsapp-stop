@@ -4,8 +4,8 @@ set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Use venv python if available, fallback to system python
-if [ -f "$DIR/venv/bin/python" ]; then
-    "$DIR/venv/bin/python" "$DIR/manage.py" stop "$@"
+if [ -f exec "$DIR/venv/bin/python" ]; then
+    exec "$DIR/venv/bin/python" "$DIR/manage.py" stop "$@"
 else
-    python3 "$DIR/manage.py" stop "$@"
+    exec python3 "$DIR/manage.py" stop "$@"
 fi

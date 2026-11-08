@@ -2,4 +2,4 @@
 # Pull latest code and update dependencies
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
-"$DIR/venv/bin/python" "$DIR/manage.py" update "$@"
+exec "$DIR/venv/bin/python" "$DIR/manage.py" update "$@"
